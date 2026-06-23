@@ -4,17 +4,15 @@ Google Antigravity CLI (agy) for Termux on Android ARM64.
 
 ## Prerequisites
 
-This package requires glibc support and curl for downloading the binary:
-
 ```bash
 pkg install glibc-repo && pkg install glibc
 pkg install curl
 ```
 
-Optionally, for attestation verification (provenance checking):
+For memory-based execution, a C compiler is required (installed automatically in Termux):
 
 ```bash
-pkg install gh
+pkg install clang
 ```
 
 ## Installation
@@ -23,7 +21,9 @@ pkg install gh
 npm install -g @bash0816/agy-termux
 ```
 
-On first run, the package automatically downloads `agy.va39` (Google Antigravity CLI) from the [wallentx/antigravity-cli-termux](https://github.com/wallentx/antigravity-cli-termux) repository and installs it to `~/.agy-termux`.
+On first run, the package downloads the official `agy` binary from
+[google-antigravity/antigravity-cli](https://github.com/google-antigravity/antigravity-cli)
+and runs it with device-specific compatibility adjustments.
 
 ## Usage
 
@@ -41,6 +41,6 @@ npm update -g @bash0816/agy-termux
 
 ## License
 
-This package is licensed under the MIT License.
+This package (`agy-termux`) is licensed under the [GPL-3.0-only](./LICENSE) License.
 
-The included `agy.va39` binary is Google Antigravity CLI, licensed under the Apache-2.0 License. See [wallentx/antigravity-cli-termux](https://github.com/wallentx/antigravity-cli-termux) for details.
+The `agy` binary downloaded at runtime is property of Google LLC.

@@ -2,20 +2,13 @@
 
 ---
 
-## 1.0.10 — 2026-06-23 ✅ Current audited / 現在の監査済み版
+## 1.0.10-1 — 2026-06-23 ✅ Initial release
 
-upstream wallentx/antigravity-cli-termux v1.0.10 追従。Termux 実機検証済み。
-
-**Upstream highlights (agy 1.0.10)**
-- Improved compatibility with a broader set of ARM64 devices
-- Added `antigravity_guide` builtin skill
-- Improved commit history navigation
-- Improved Git integration (ASCII node graphs)
-- Improved markdown rendering (glamour v2.0.1)
-- Fixed permission engine matching bugs
+Google Antigravity CLI (agy) v1.0.10 対応。
+In-memory VA39 patching 実装。Termux Android ARM64 対応。
 
 ```sh
-npm install -g @bash0816/agy-termux@latest
+npm install -g @bash0816/agy-termux
 ```
 
 ---
