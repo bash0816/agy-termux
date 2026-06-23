@@ -3,11 +3,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { spawn } = require('child_process');
 const { AGY_VERSION, INSTALL_DIR } = require('../lib/config');
 
-function checkVersionAndDownload() {
+async function checkVersionAndDownload() {
   const versionFile = path.join(INSTALL_DIR, '.version');
   let needsDownload = true;
 
@@ -24,7 +23,7 @@ function checkVersionAndDownload() {
 
   if (needsDownload) {
     const downloader = require('../lib/downloader');
-    downloader();
+    await downloader();
   }
 }
 
@@ -49,7 +48,7 @@ function checkGlibcLoader() {
 }
 
 function launchAgy() {
-  const launcherPath = path.join(os.homedir(), '.agy-termux', 'launcher.sh');
+  const launcherPath = path.join(INSTALL_DIR, 'launcher.sh');
   const args = process.argv.slice(2);
 
   const child = spawn(launcherPath, args, { stdio: 'inherit' });
@@ -64,7 +63,11 @@ function launchAgy() {
   });
 }
 
-checkVersionAndDownload();
 handleUpdateCommand();
-checkGlibcLoader();
-launchAgy();
+checkVersionAndDownload().then(() => {
+  checkGlibcLoader();
+  launchAgy();
+}).catch(err => {
+  console.error(`[agy-termux] Error: ${err.message}`);
+  process.exit(1);
+});
