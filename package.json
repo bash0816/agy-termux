@@ -1,12 +1,11 @@
 {
   "name": "@bash0816/agy-termux",
-  "version": "1.0.10",
+  "version": "1.0.10-1",
   "description": "Google Antigravity CLI (agy) for Termux on Android ARM64",
   "bin": {
     "agy": "./bin/agy.js"
   },
-  "main": "./lib/config.js",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "engines": {
     "node": ">=18"
   },
@@ -20,6 +19,7 @@
   "files": [
     "bin/",
     "lib/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ]
 }
