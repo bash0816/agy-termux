@@ -26,14 +26,16 @@ async function gateDownload() {
   console.error('\n[agy] このツールは google-antigravity/antigravity-cli の公式バイナリを');
   console.error('      Google のサーバーからダウンロードします。');
   console.error('      利用には Google の利用規約 (antigravity.google/terms) への同意が必要です。\n');
-  if ((await ask('続けますか？ [y/N] ')) !== 'y') { console.error('キャンセルしました。'); process.exit(0); }
+  const _ans1 = await ask('続けますか？ [Y/n] ');
+  if (_ans1 === 'n' || _ans1 === 'no') { console.error('キャンセルしました。'); process.exit(0); }
   saveConsent('download');
 }
 async function gateCompat() {
   if (hasConsent('compat')) return;
   console.error('\n[agy] このデバイスでの起動には互換性のための技術的な調整が必要です。');
   console.error('      調整はこのデバイス上でのみ行われ、元のファイルは変更されません。\n');
-  if ((await ask('続けますか？ [y/N] ')) !== 'y') { console.error('キャンセルしました。'); process.exit(0); }
+  const _ans2 = await ask('続けますか？ [Y/n] ');
+  if (_ans2 === 'n' || _ans2 === 'no') { console.error('キャンセルしました。'); process.exit(0); }
   saveConsent('compat');
 }
 function needsPatch() {
