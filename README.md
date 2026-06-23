@@ -31,7 +31,7 @@ On first run, the package automatically downloads `agy.va39` (Google Antigravity
 agy [command] [options]
 ```
 
-For available commands, see the [Antigravity CLI documentation](https://github.com/google/antigravity).
+For available commands, see the [Antigravity CLI documentation](https://antigravity.google).
 
 ## Updating
 
