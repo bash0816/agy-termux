@@ -1,0 +1,25 @@
+{
+  "name": "@bash0816/agy-termux",
+  "version": "1.0.10",
+  "description": "Google Antigravity CLI (agy) for Termux on Android ARM64",
+  "bin": {
+    "agy": "./bin/agy.js"
+  },
+  "main": "./lib/config.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["android"],
+  "cpu": ["arm64"],
+  "keywords": ["agy", "antigravity", "termux", "android", "arm64", "google"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bash0816/agy-termux"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md"
+  ]
+}
