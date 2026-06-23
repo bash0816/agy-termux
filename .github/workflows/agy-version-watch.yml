@@ -2,7 +2,7 @@ name: agy Version Watch
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '17 19 * * *'
   workflow_dispatch:
 
 permissions:
