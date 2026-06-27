@@ -17,12 +17,10 @@ npm install -g @bash0816/agy-termux
 
 ---
 
-## 1.0.10-1 — 2026-06-23
+## 1.0.10-1 — 2026-06-23 (internal validation / 内部検証版)
 
-Google Antigravity CLI (agy) v1.0.10 対応。Initial release。
+Termux Android ARM64 互換性対応。npm 未公開の技術検証版。
 
-agy v1.0.10 support. Initial release.
-
-- Termux Android ARM64 互換性対応 / Termux Android ARM64 compatibility support
+Termux Android ARM64 compatibility support. Internal validation only, not published to npm.
 
 ---
