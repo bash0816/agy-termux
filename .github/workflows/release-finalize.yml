@@ -1,0 +1,107 @@
+name: Release Finalize
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published version (e.g. 1.0.12)'
+        required: true
+        type: string
+      release_notes:
+        description: 'Release summary (Japanese/English, leave empty for default)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify npm publish exists
+        run: |
+          set -euo pipefail
+          VER="${{ inputs.version }}"
+          published=$(npm view "@bash0816/agy-termux@${VER}" version 2>/dev/null || echo "")
+          if [ "$published" != "$VER" ]; then
+            echo "ERROR: @bash0816/agy-termux@${VER} not found on npm" >&2
+            exit 1
+          fi
+          echo "Confirmed: @bash0816/agy-termux@${VER} is published"
+
+      - name: Update RELEASES.md current marker
+        run: |
+          set -euo pipefail
+          VER="${{ inputs.version }}"
+          DATE=$(TZ=Asia/Tokyo date +%Y-%m-%d)
+          NOTES="${{ inputs.release_notes }}"
+          if [ -z "$NOTES" ]; then
+            NOTES="Google Antigravity CLI (agy) v${VER} 対応。Termux 実機検証済み。\nagy v${VER} support. Verified on Termux (Android ARM64)."
+          fi
+
+          # Remove "Current / 現行版" marker from all entries
+          sed -i 's/ ✅ Current \/ 現行版/ ✅/g' RELEASES.md
+
+          if grep -qF "## ${VER}" RELEASES.md; then
+            # Entry exists — just re-add the Current marker
+            sed -i "s/## ${VER} — \(.*\) ✅/## ${VER} — \1 ✅ Current \/ 現行版/" RELEASES.md
+            echo "Updated current marker for existing ${VER} entry"
+          else
+            # New entry
+            ENTRY="## ${VER} — ${DATE} ✅ Current \/ 現行版\n\n${NOTES}\n\n\`\`\`sh\nnpm install -g @bash0816/agy-termux\n\`\`\`\n\n---\n\n"
+            printf "%b" "${ENTRY}$(cat RELEASES.md)" > /tmp/releases_new.md
+            mv /tmp/releases_new.md RELEASES.md
+            echo "Added new ${VER} entry to RELEASES.md"
+          fi
+
+      - name: Commit updated RELEASES.md
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add RELEASES.md
+          git diff --cached --quiet && echo "No changes to commit" || \
+            { git commit -m "docs: mark v${{ inputs.version }} as current release" && git push; }
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VER="${{ inputs.version }}"
+          TAG="v${VER}"
+
+          NOTES=$(node -e "
+            const fs = require('fs');
+            const md = fs.readFileSync('RELEASES.md', 'utf8');
+            const lines = md.split('\n');
+            let capture = false;
+            const out = [];
+            for (const line of lines) {
+              if (line.startsWith('## \${VER}')) { capture = true; continue; }
+              if (capture && line.startsWith('## ')) break;
+              if (capture) out.push(line);
+            }
+            process.stdout.write(out.join('\n').trim());
+          " VER="$VER")
+
+          git tag "$TAG" 2>/dev/null || true
+          git push origin "$TAG" 2>/dev/null || true
+
+          gh release create "$TAG" \
+            --title "@bash0816/agy-termux $TAG" \
+            --notes "$NOTES" \
+            --latest 2>/dev/null || \
+          gh release edit "$TAG" \
+            --title "@bash0816/agy-termux $TAG" \
+            --notes "$NOTES" \
+            --latest

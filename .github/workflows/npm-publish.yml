@@ -1,0 +1,144 @@
+name: npm Publish
+
+on:
+  pull_request:
+    paths:
+      - 'bin/**'
+      - 'lib/**'
+      - 'package.json'
+      - 'README.md'
+      - 'NOTICE.md'
+      - '.github/workflows/npm-publish.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'bin/**'
+      - 'lib/**'
+      - 'package.json'
+      - 'README.md'
+      - 'NOTICE.md'
+      - '.github/workflows/npm-publish.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'publish-candidate'
+        type: choice
+        options:
+          - 'publish-candidate'
+          - 'promote-to-latest'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'publish-candidate'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check
+        run: |
+          set -euo pipefail
+          node --check bin/agy.js
+          node --check lib/downloader.js
+          node --check lib/patcher.js
+
+      - name: Pack dry run
+        run: npm pack --dry-run
+
+  publish-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'publish-candidate'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish guard
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const { execSync } = require('child_process');
+          const pkg = require('./package.json');
+
+          if (pkg.name !== '@bash0816/agy-termux') throw new Error('unexpected package name');
+          if (!pkg.version) throw new Error('missing version in package.json');
+
+          const packInfo = JSON.parse(execSync('npm pack --dry-run --json', { encoding: 'utf8' }));
+          const pack = Array.isArray(packInfo) ? packInfo[0] : packInfo;
+          const files = (pack.files || []).map(f => String(f.path || '').replace(/^\.\//, ''));
+          const allowed = new Set(['package.json', 'README.md', 'NOTICE.md', 'LICENSE']);
+          const unexpected = files.filter(f => {
+            if (allowed.has(f)) return false;
+            if (f.startsWith('bin/') || f.startsWith('lib/')) return false;
+            return true;
+          });
+          if (unexpected.length) {
+            throw new Error(`unexpected files in npm pack: ${unexpected.join(', ')}`);
+          }
+          console.log('Pack OK, version:', pkg.version, 'files:', files);
+          NODE
+
+      - name: Publish as @candidate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --tag candidate
+
+      - name: Show dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag ls @bash0816/agy-termux
+
+  promote-to-latest:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'promote-to-latest'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Swap candidate → latest (old latest → candidate)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANDIDATE=$(npm view @bash0816/agy-termux dist-tags.candidate)
+          echo "candidate: $CANDIDATE"
+          PREV_LATEST=$(npm view @bash0816/agy-termux dist-tags.latest 2>/dev/null || echo "")
+          echo "prev latest: ${PREV_LATEST:-none}"
+
+          if [ -z "$CANDIDATE" ]; then
+            echo "No @candidate tag found. Aborting."
+            exit 1
+          fi
+
+          if [ -n "$PREV_LATEST" ] && [ "$PREV_LATEST" != "$CANDIDATE" ]; then
+            npm dist-tag add @bash0816/agy-termux@$PREV_LATEST candidate
+            echo "Moved $PREV_LATEST → @candidate"
+          fi
+
+          npm dist-tag add @bash0816/agy-termux@$CANDIDATE latest
+          echo "Promoted $CANDIDATE → @latest"
+
+          npm dist-tag ls @bash0816/agy-termux
