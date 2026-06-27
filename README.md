@@ -11,23 +11,21 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 
 This package downloads the official `agy` binary from Google's public release source
 ([google-antigravity/antigravity-cli](https://github.com/google-antigravity/antigravity-cli))
-at the user's explicit request and applies a **local compatibility patch** on your device
+at the user's explicit request and applies a **local compatibility adjustment** on your device
 to enable execution in the Termux/Android ARM64 environment.
 
 このパッケージはユーザーの明示的な操作により、Google の公開 Release
 ([google-antigravity/antigravity-cli](https://github.com/google-antigravity/antigravity-cli))
 から公式バイナリをダウンロードし、Termux/Android ARM64 で動作させるための
-**ローカル互換性パッチ**をユーザー端末上で適用します。
+**ローカル互換性調整**をユーザー端末上で行います。
 
-- The compatibility patch adjusts TCMalloc memory address calculations for Android's 39-bit VA space.
-- 互換性パッチは Android の 39-bit VA 空間向けに TCMalloc メモリアドレス計算命令を調整します。
 - **No Google binaries or modified binaries are distributed by this package.**
 - **このパッケージは Google バイナリや改変済みバイナリを配布しません。**
-- The patch is applied on your device only. No modified binary is uploaded or shared.
-- パッチはユーザー端末上でのみ適用されます。改変済みバイナリのアップロード・共有は行いません。
-- The patch is intended solely for Termux/Android runtime interoperability.
+- The adjustment is performed on your device only. No modified binary is uploaded or shared.
+- 調整はユーザー端末上でのみ行われます。改変済みバイナリのアップロード・共有は行いません。
+- The adjustment is intended solely for Termux/Android runtime interoperability.
   It does not bypass authentication, licensing, payment, access controls, or usage restrictions.
-- パッチの目的は Termux/Android 実行環境への互換性確保のみです。
+- 調整の目的は Termux/Android 実行環境への互換性確保のみです。
   認証・ライセンス・課金・アクセス制御・利用制限の回避を意図するものではありません。
 
 ## Prerequisites / 前提条件
@@ -110,14 +108,13 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- **Runtime / ランタイム**: Termux glibc loader (`pkg install glibc`)
 - Tested with agy 1.0.12 on Android 12+ / Android 12+ 上の agy 1.0.12 で動作確認済み
 
 ## Known limitations / 既知の制限
 
-- Upstream agy updates may require a new compatibility patch version.
-  上流 agy のアップデートにより互換性パッチの更新が必要になる場合があります。
-- If the downloaded binary fails basic validation, the tool will exit rather than run a potentially broken binary.
-  ダウンロードしたバイナリが基本検証に失敗した場合、破損したバイナリの実行を避けるため終了します。
+- Upstream agy updates may require a compatibility update to this package.
+  上流 agy のアップデートにより本パッケージの更新が必要になる場合があります。
+- If the downloaded binary fails validation, the tool will exit safely.
+  ダウンロードしたバイナリが検証に失敗した場合、安全に終了します。
 - Google may change their release distribution or terms at any time.
   Google はリリース配布方法や利用規約をいつでも変更する可能性があります。
