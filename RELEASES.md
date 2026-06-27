@@ -24,7 +24,6 @@ Google Antigravity CLI (agy) v1.0.10 対応。Initial release。
 
 agy v1.0.10 support. Initial release.
 
-- In-memory VA39 patching 実装 / In-memory VA39 patch implementation
-- Termux Android ARM64 対応 / Termux Android ARM64 support
+- Termux Android ARM64 互換性対応 / Termux Android ARM64 compatibility support
 
 ---
