@@ -21,20 +21,21 @@ on:
       - '.github/workflows/npm-publish.yml'
   workflow_dispatch:
     inputs:
-      publish:
-        description: 'Publish @bash0816/agy-termux to npm'
-        required: false
-        default: 'false'
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'publish-candidate'
         type: choice
         options:
-          - 'false'
-          - 'true'
+          - 'publish-candidate'
+          - 'promote-to-latest'
 
 permissions:
   contents: read
 
 jobs:
   verify:
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'publish-candidate'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +54,8 @@ jobs:
       - name: Pack dry run
         run: npm pack --dry-run
 
-  publish:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish == 'true'
+  publish-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'publish-candidate'
     needs: verify
     runs-on: ubuntu-latest
     environment: npm-publish
@@ -94,7 +95,50 @@ jobs:
           console.log('Pack OK, version:', pkg.version, 'files:', files);
           NODE
 
-      - name: Publish to npm
+      - name: Publish as @candidate
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --tag candidate
+
+      - name: Show dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag ls @bash0816/agy-termux
+
+  promote-to-latest:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'promote-to-latest'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Swap candidate → latest (old latest → candidate)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANDIDATE=$(npm view @bash0816/agy-termux dist-tags.candidate)
+          echo "candidate: $CANDIDATE"
+          PREV_LATEST=$(npm view @bash0816/agy-termux dist-tags.latest 2>/dev/null || echo "")
+          echo "prev latest: ${PREV_LATEST:-none}"
+
+          if [ -z "$CANDIDATE" ]; then
+            echo "No @candidate tag found. Aborting."
+            exit 1
+          fi
+
+          if [ -n "$PREV_LATEST" ] && [ "$PREV_LATEST" != "$CANDIDATE" ]; then
+            npm dist-tag add @bash0816/agy-termux@$PREV_LATEST candidate
+            echo "Moved $PREV_LATEST → @candidate"
+          fi
+
+          npm dist-tag add @bash0816/agy-termux@$CANDIDATE latest
+          echo "Promoted $CANDIDATE → @latest"
+
+          npm dist-tag ls @bash0816/agy-termux
