@@ -57,24 +57,51 @@ async function main() {
     console.error('  pkg install glibc-repo && pkg install glibc'); process.exit(1);
   }
   await gateDownload();
-  const { downloadOfficialBinary } = require('../lib/downloader');
-  const binBuf = await downloadOfficialBinary();
-  if (needsPatch()) {
-    await gateCompat();
-    const { applyVA39Patch } = require('../lib/patcher');
-    applyVA39Patch(binBuf);
-    const { execInMemory } = require('../lib/executor');
-    execInMemory(binBuf, args);
-  } else {
-    const tmp = path.join(INSTALL_DIR, '.bin.tmp');
+
+  const { fetchLatestMeta, downloadBinary } = require('../lib/downloader');
+  const glibcLib = path.join(prefix, 'glibc', 'lib');
+  const isPatch = needsPatch();
+  const tmp = isPatch ? path.join(INSTALL_DIR, 'agy.va39') : path.join(INSTALL_DIR, '.bin.tmp');
+  const versionFile = path.join(INSTALL_DIR, '.version');
+
+  process.stderr.write('[agy] 最新リリース情報を取得中...\n');
+  const { tagName, downloadUrl } = await fetchLatestMeta();
+
+  const cachedTag = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return ''; } })();
+  const cacheHit = isPatch && fs.existsSync(tmp) && tagName === cachedTag;
+
+  if (!cacheHit) {
+    if (isPatch) await gateCompat();
+    process.stderr.write(`[agy] ${tagName} をダウンロード中...\n`);
+    const binBuf = await downloadBinary(downloadUrl);
+    if (isPatch) {
+      const { applyVA39Patch } = require('../lib/patcher');
+      applyVA39Patch(binBuf);
+    }
     fs.mkdirSync(INSTALL_DIR, { recursive: true });
-    fs.writeFileSync(tmp, binBuf, { mode: 0o700 });
-    const { spawn } = require('child_process');
-    const glibcLib = path.join(prefix, 'glibc', 'lib');
-    const child = spawn(loader, ['--library-path', glibcLib, tmp, ...args],
-      { stdio: 'inherit', env: Object.assign({}, process.env, { LD_PRELOAD: '' }) });
-    child.on('exit', (code, signal) => { fs.rmSync(tmp, { force: true }); process.exit(signal ? 1 : (code ?? 0)); });
-    child.on('error', err => { fs.rmSync(tmp, { force: true }); console.error(`[agy] ${err.message}`); process.exit(1); });
+    const tmpWrite = tmp + '.tmp';
+    fs.writeFileSync(tmpWrite, binBuf, { mode: 0o700 });
+    fs.renameSync(tmpWrite, tmp);
+    fs.writeFileSync(versionFile, tagName);
   }
+
+  const { spawn } = require('child_process');
+  const child = spawn(loader, ['--library-path', glibcLib, tmp, ...args], {
+    stdio: 'inherit',
+    env: Object.assign({}, process.env, {
+      LD_PRELOAD: '',
+      SSL_CERT_FILE: path.join(prefix, 'etc', 'tls', 'cert.pem'),
+      GODEBUG: 'netdns=cgo',
+    }),
+  });
+  child.on('exit', (code, signal) => {
+    if (!isPatch) fs.rmSync(tmp, { force: true });
+    process.exit(signal ? 1 : (code ?? 0));
+  });
+  child.on('error', err => {
+    if (!isPatch) fs.rmSync(tmp, { force: true });
+    console.error(`[agy] ${err.message}`);
+    process.exit(1);
+  });
 }
 main().catch(err => { console.error(`[agy] Error: ${err.message}`); process.exit(1); });
