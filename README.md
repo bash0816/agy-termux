@@ -21,8 +21,6 @@ to enable execution in the Termux/Android ARM64 environment.
 
 - **No Google binaries or modified binaries are distributed by this package.**
 - **このパッケージは Google バイナリや改変済みバイナリを配布しません。**
-- The adjustment is performed on your device only. No modified binary is uploaded or shared.
-- 調整はユーザー端末上でのみ行われます。改変済みバイナリのアップロード・共有は行いません。
 - The adjustment is intended solely for Termux/Android runtime interoperability.
   It does not bypass authentication, licensing, payment, access controls, or usage restrictions.
 - 調整の目的は Termux/Android 実行環境への互換性確保のみです。
