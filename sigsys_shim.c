@@ -4,12 +4,15 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+#include <time.h>
 
 #ifndef __NR_faccessat2
 #define __NR_faccessat2 439
 #endif
 
 static struct sigaction old_sigsys_action;
+static struct sigaction our_action;
 
 static void sigsys_handler(int sig, siginfo_t *info, void *ucontext_void) {
     ucontext_t *uc = (ucontext_t *)ucontext_void;
@@ -34,11 +37,35 @@ static void sigsys_handler(int sig, siginfo_t *info, void *ucontext_void) {
     _exit(159);
 }
 
+/*
+ * The Go runtime installs its own SIGSYS handler during runtime/thread
+ * initialization (observed: it overwrites ours sometime after process
+ * startup, converting later faccessat2 SIGSYS faults into a fatal Go
+ * panic instead of reaching this handler). Re-arming our handler from a
+ * background thread wins back the signal disposition each time Go's
+ * runtime steals it.
+ */
+static void *rearm_loop(void *unused) {
+    (void)unused;
+    struct timespec ts = { .tv_sec = 0, .tv_nsec = 20 * 1000 * 1000 }; /* 20ms */
+    for (;;) {
+        sigaction(SIGSYS, &our_action, NULL);
+        nanosleep(&ts, NULL);
+    }
+    return NULL;
+}
+
 __attribute__((constructor))
 static void install_sigsys_shim(void) {
-    struct sigaction sa;
-    sa.sa_sigaction = sigsys_handler;
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGSYS, &sa, &old_sigsys_action);
+    our_action.sa_sigaction = sigsys_handler;
+    our_action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&our_action.sa_mask);
+    sigaction(SIGSYS, &our_action, &old_sigsys_action);
+
+    pthread_t tid;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&tid, &attr, rearm_loop, NULL);
+    pthread_attr_destroy(&attr);
 }
