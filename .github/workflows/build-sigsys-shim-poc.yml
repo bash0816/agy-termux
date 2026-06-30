@@ -19,7 +19,7 @@ jobs:
 
       - name: Build SIGSYS shim
         run: |
-          aarch64-linux-gnu-gcc -fPIC -shared -O2 -Wall -o sigsys_shim.so sigsys_shim.c
+          aarch64-linux-gnu-gcc -fPIC -shared -O2 -Wall -o sigsys_shim.so sigsys_shim.c -lpthread
           file sigsys_shim.so
 
       - name: Upload artifact
