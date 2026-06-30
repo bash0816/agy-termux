@@ -11,6 +11,13 @@
 #define __NR_faccessat2 439
 #endif
 
+/* si_code value for SIGSYS raised by the kernel's seccomp-bpf filter
+ * (linux/seccomp.h / linux/signal.h). Hardcoded like __NR_faccessat2
+ * above since the build-time glibc headers may not expose it. */
+#ifndef SYS_SECCOMP
+#define SYS_SECCOMP 1
+#endif
+
 static struct sigaction old_sigsys_action;
 static struct sigaction our_action;
 
