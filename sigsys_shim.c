@@ -2,8 +2,8 @@
 #include <signal.h>
 #include <ucontext.h>
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <pthread.h>
 #include <time.h>
 
@@ -18,22 +18,23 @@ static void sigsys_handler(int sig, siginfo_t *info, void *ucontext_void) {
     ucontext_t *uc = (ucontext_t *)ucontext_void;
     long syscall_nr = uc->uc_mcontext.regs[8];
 
-    if (syscall_nr == __NR_faccessat2) {
+    if (info->si_code == SYS_SECCOMP && syscall_nr == __NR_faccessat2) {
         uc->uc_mcontext.regs[0] = (unsigned long)(-ENOSYS);
         uc->uc_mcontext.pc += 4;
         return;
     }
 
+    /* Not ours to handle: forward to whatever was registered before us. */
     if (old_sigsys_action.sa_flags & SA_SIGINFO) {
         if (old_sigsys_action.sa_sigaction) {
             old_sigsys_action.sa_sigaction(sig, info, ucontext_void);
             return;
         }
-    } else if (old_sigsys_action.sa_handler == SIG_DFL || old_sigsys_action.sa_handler == NULL) {
-        signal(SIGSYS, SIG_DFL);
-        raise(SIGSYS);
-        return;
     }
+    /* No usable previous handler (SIG_DFL/SIG_IGN/NULL): terminate directly.
+     * Avoid signal()/raise() here - neither is async-signal-safe to call
+     * from within a signal handler, and re-raising risks recursing back
+     * into this same handler before the disposition change takes effect. */
     _exit(159);
 }
 
@@ -44,6 +45,13 @@ static void sigsys_handler(int sig, siginfo_t *info, void *ucontext_void) {
  * panic instead of reaching this handler). Re-arming our handler from a
  * background thread wins back the signal disposition each time Go's
  * runtime steals it.
+ *
+ * Known limitation: this leaves a race window (up to the re-arm interval)
+ * between Go reclaiming SIGSYS and us winning it back, during which a
+ * faccessat2 SIGSYS would still crash. Observed stable across repeated
+ * runs in practice (interval well under typical Go runtime init/handoff
+ * timing), but this is not a complete fix - only a kernel-level seccomp
+ * filter installed before exec would close the window entirely.
  */
 static void *rearm_loop(void *unused) {
     (void)unused;
