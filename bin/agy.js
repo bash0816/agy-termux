@@ -93,7 +93,7 @@ async function main() {
   const child = spawn(loader, ['--library-path', glibcLib, tmp, ...args], {
     stdio: 'inherit',
     env: Object.assign({}, process.env, {
-      LD_PRELOAD: '',
+      LD_PRELOAD: path.join(__dirname, "..", "lib", "native", "sigsys_shim.so"),
       SSL_CERT_FILE: path.join(prefix, 'etc', 'tls', 'cert.pem'),
       GODEBUG: 'netdns=cgo',
     }),
