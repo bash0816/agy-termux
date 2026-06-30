@@ -19,6 +19,8 @@
   "files": [
     "bin/",
     "lib/",
+    "lib/native/",
+    "config/",
     "README.md",
     "NOTICE.md",
     "LICENSE"
