@@ -68,4 +68,14 @@ static void install_sigsys_shim(void) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_create(&tid, &attr, rearm_loop, NULL);
     pthread_attr_destroy(&attr);
+
+    /*
+     * The dynamic linker has already preloaded this .so by the time this
+     * constructor runs, so it is now safe to drop LD_PRELOAD from the
+     * process's own environment. Without this, child processes spawned
+     * by agy (e.g. its sandboxed shell tool, which execs the Android
+     * bionic-linked bash, not glibc) inherit LD_PRELOAD and fail to
+     * start because they cannot load this glibc-linked shared object.
+     */
+    unsetenv("LD_PRELOAD");
 }
