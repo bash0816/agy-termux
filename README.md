@@ -56,9 +56,9 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-The wrapper always fetches the latest official `agy` release on first use of a new version.
+The wrapper downloads a specific, verified version of the official `agy` release (currently 1.0.14), pinned in `config/agy-verified-versions.json`. This ensures compatibility with the Termux/Android SIGSYS workaround bundled in this package. To opt into the latest unverified upstream release instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility is not guaranteed).
 
-wrapper は新バージョンの初回起動時に常に最新の公式 `agy` Release を取得します。
+wrapper は `config/agy-verified-versions.json` に固定された、動作検証済みの特定バージョン（現在は 1.0.14）の公式 `agy` Release をダウンロードします。これにより、本パッケージに同梱された Termux/Android 向け SIGSYS 回避策との互換性を保証します。検証されていない最新の upstream バージョンを試したい場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性は保証されません）。
 
 ## Usage / 使い方
 
