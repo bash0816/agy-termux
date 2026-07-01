@@ -1,8 +1,18 @@
+## 1.0.14 — 2026-07-01 ✅ Current \/ 現行版
+
+upstream google-antigravity/antigravity-cli 1.0.14 追従。faccessat2 syscall による SIGSYS クラッシュを LD_PRELOAD shim で修正し、バージョンpin化により今後の破壊的変更の即時波及を防止。
+
+```sh
+npm install -g @bash0816/agy-termux
+```
+
+---
+
 # Releases: @bash0816/agy-termux
 
 ---
 
-## 1.0.12 — 2026-06-27 ✅ Current / 現行版
+## 1.0.12 — 2026-06-27 ✅
 
 Google Antigravity CLI (agy) v1.0.12 対応。Termux 実機検証済み。
 
