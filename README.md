@@ -7,24 +7,14 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
-## ⚠️ Known Issue (v1.0.12) / 既知の問題 (v1.0.12)
+## ✅ v1.0.14 Released — Update Now / v1.0.14 リリース済み — 今すぐ更新してください
 
-**⚠️ Do not update or reinstall this package right now.**
-
-The npm version 1.0.12 currently downloads the latest upstream `agy` binary (v1.0.14), which crashes on Android due to a `SIGSYS` signal (unsupported `faccessat2` syscall blocked by seccomp).
-
-A fixed version with a SIGSYS workaround and locked binary version is ready and will be published to npm soon. After the update is released, you can safely update with:
+v1.0.12 has a known crash bug (SIGSYS from faccessat2 syscall on Android). This is fixed in v1.0.14, which is now the npm `latest` version. Please update immediately:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
 
----
-
-**⚠️ 今は更新・再インストールしないでください。**
-
-現在のnpmバージョン(1.0.12)は最新の upstream `agy` バイナリ(v1.0.14)を取得しますが、Android では SIGSYS シグナルでクラッシュします(seccompによる `faccessat2` syscall ブロック)。
-
-修正版(SIGSYS回避策対応・バージョン固定)の準備が整い、近日中にnpm公開予定です。公開後は以下で更新してください：
+v1.0.12 には既知のクラッシュバグ(Android での faccessat2 syscall による SIGSYS)がありました。この問題は v1.0.14 で修正済みで、現在 npm の `latest` バージョンです。今すぐ更新してください:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
