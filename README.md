@@ -15,8 +15,8 @@ The current release dynamically fetches the latest upstream agy binary, which is
 This version uses `faccessat2` syscalls that are blocked by Android's seccomp filter, causing the tool
 to crash with a `SIGSYS` signal when invoked.
 
-**Workaround:** A fixed version that pins an earlier upstream release and includes a compatibility shim
-is in development and will be released shortly. Once available, update with:
+**Workaround:** A fixed version (v1.0.14 with SIGSYS shim and version pin) is ready for release and will be published to npm shortly.
+Once released, update with:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
@@ -29,7 +29,7 @@ npm update -g @bash0816/agy-termux
 このバージョンは `faccessat2` syscallを使用しており、Android のseccompフィルタにブロックされるため、
 呼び出し時に `SIGSYS` シグナルでクラッシュします。
 
-**対応方法:** 以前のupstreamリリースにpinし、互換性shimを組み込んだ修正版を準備中です。公開後は以下で更新してください：
+**対応方法:** 修正版(1.0.14対応SIGSYS shim + バージョンpin)は準備が整い、近日中にnpm公開予定です。公開後は以下で更新してください：
 ```sh
 npm update -g @bash0816/agy-termux
 ```
@@ -83,9 +83,9 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-The wrapper always fetches the latest official `agy` release on first use of a new version.
+The wrapper downloads a specific, verified version of the official `agy` release (currently 1.0.14), pinned in `config/agy-verified-versions.json`. This ensures compatibility with the Termux/Android SIGSYS workaround bundled in this package. To opt into the latest unverified upstream release instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility is not guaranteed).
 
-wrapper は新バージョンの初回起動時に常に最新の公式 `agy` Release を取得します。
+wrapper は `config/agy-verified-versions.json` に固定された、動作検証済みの特定バージョン（現在は 1.0.14）の公式 `agy` Release をダウンロードします。これにより、本パッケージに同梱された Termux/Android 向け SIGSYS 回避策との互換性を保証します。検証されていない最新の upstream バージョンを試したい場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性は保証されません）。
 
 ## Usage / 使い方
 
@@ -133,7 +133,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Tested with agy 1.0.12 on Android 12+ / Android 12+ 上の agy 1.0.12 で動作確認済み
+- Tested with agy 1.0.14 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.14（SIGSYS shim + バージョンpin対応）で実機TUI検証済み
 
 ## Known limitations / 既知の制限
 
@@ -143,3 +143,17 @@ we will promptly review it and may remove or disable the affected functionality.
   ダウンロードしたバイナリが検証に失敗した場合、安全に終了します。
 - Google may change their release distribution or terms at any time.
   Google はリリース配布方法や利用規約をいつでも変更する可能性があります。
+
+## Rollback / ロールバック手順
+
+If a critical issue is discovered after promoting a new version to `latest`, you can immediately roll back to the previous version using the following command:
+
+新バージョン昇格後に重大な問題が発見された場合、以下のコマンドで前バージョンにロールバックできます:
+
+```sh
+npm dist-tag add @bash0816/agy-termux@1.0.12 latest
+```
+
+This reverts the `latest` tag to version 1.0.12 and will restore the previous stable release for all new installations and updates.
+
+これにより `latest` タグを 1.0.12 に戻し、新規インストール・更新時に前のステーブル版を配布します。

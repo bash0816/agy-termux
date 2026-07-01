@@ -1,0 +1,7 @@
+{
+  "verified_version": "1.0.14",
+  "tag_name": "1.0.14",
+  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.0.14/agy_cli_linux_arm64.tar.gz",
+  "verified_date": "2026-07-01",
+  "notes": "Verified working with SIGSYS shim (faccessat2 workaround for upstream 1.0.14+) on Termux/Android ARM64"
+}
