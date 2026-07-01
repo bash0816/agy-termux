@@ -7,6 +7,33 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
+## ⚠️ Known Issue (v1.0.12) / 既知の問題 (v1.0.12)
+
+**Current npm version (1.0.12) has a known compatibility issue with upstream agy 1.0.14.**
+
+The current release dynamically fetches the latest upstream agy binary, which is version 1.0.14.
+This version uses `faccessat2` syscalls that are blocked by Android's seccomp filter, causing the tool
+to crash with a `SIGSYS` signal when invoked.
+
+**Workaround:** A fixed version that pins an earlier upstream release and includes a compatibility shim
+is in development and will be released shortly. Once available, update with:
+```sh
+npm update -g @bash0816/agy-termux
+```
+
+---
+
+**現在のnpmバージョン(1.0.12)はupstream agy 1.0.14との互換性に問題があります。**
+
+現在のリリースは最新のupstream agyバイナリを動的に取得しますが、これはバージョン1.0.14です。
+このバージョンは `faccessat2` syscallを使用しており、Android のseccompフィルタにブロックされるため、
+呼び出し時に `SIGSYS` シグナルでクラッシュします。
+
+**対応方法:** 以前のupstreamリリースにpinし、互換性shimを組み込んだ修正版を準備中です。公開後は以下で更新してください：
+```sh
+npm update -g @bash0816/agy-termux
+```
+
 ## What this does / 仕組み
 
 This package downloads the official `agy` binary from Google's public release source
