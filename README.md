@@ -15,8 +15,8 @@ The current release dynamically fetches the latest upstream agy binary, which is
 This version uses `faccessat2` syscalls that are blocked by Android's seccomp filter, causing the tool
 to crash with a `SIGSYS` signal when invoked.
 
-**Workaround:** A fixed version that pins an earlier upstream release and includes a compatibility shim
-is in development and will be released shortly. Once available, update with:
+**Workaround:** A fixed version (v1.0.14 with SIGSYS shim and version pin) is ready for release and will be published to npm shortly.
+Once released, update with:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
@@ -29,7 +29,7 @@ npm update -g @bash0816/agy-termux
 このバージョンは `faccessat2` syscallを使用しており、Android のseccompフィルタにブロックされるため、
 呼び出し時に `SIGSYS` シグナルでクラッシュします。
 
-**対応方法:** 以前のupstreamリリースにpinし、互換性shimを組み込んだ修正版を準備中です。公開後は以下で更新してください：
+**対応方法:** 修正版(1.0.14対応SIGSYS shim + バージョンpin)は準備が整い、近日中にnpm公開予定です。公開後は以下で更新してください：
 ```sh
 npm update -g @bash0816/agy-termux
 ```
