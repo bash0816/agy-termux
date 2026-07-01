@@ -7,14 +7,14 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
-## ✅ v1.0.14 Released — Update Now / v1.0.14 リリース済み — 今すぐ更新してください
+## ✅ v1.0.14 Released — Update Recommended / v1.0.14 リリース済み — 更新を推奨します
 
-v1.0.12 has a known crash bug (SIGSYS from faccessat2 syscall on Android). This is fixed in v1.0.14, which is now the npm `latest` version. Please update immediately:
+v1.0.12 itself is not broken. The crash (SIGSYS from a `faccessat2` syscall on Android) happens when the **official upstream `agy` binary** is updated to a version that uses this syscall (introduced upstream around 2026-06-30) — and v1.0.12 always fetched the latest official binary dynamically with no version pinning, so existing v1.0.12 installs could pick up the broken binary without any npm package update. v1.0.14 fixes this by pinning to a verified compatible binary version and adding a syscall shim workaround. Update is recommended for safety:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
 
-v1.0.12 には既知のクラッシュバグ(Android での faccessat2 syscall による SIGSYS)がありました。この問題は v1.0.14 で修正済みで、現在 npm の `latest` バージョンです。今すぐ更新してください:
+v1.0.12 そのものが壊れているわけではありません。クラッシュ(Android での `faccessat2` syscall による SIGSYS)は、**公式の `agy` バイナリ本体**がこの syscall を使うバージョン(2026-06-30頃に upstream で導入)に更新された際に発生します。v1.0.12 はバージョン固定なしで常に公式の最新バイナリを動的取得していたため、npmパッケージ自体を更新していなくても、既存の v1.0.12 環境が壊れたバイナリを掴んでしまうことがありました。v1.0.14 では検証済みバイナリバージョンへの固定と syscall shim による回避策で修正済みです。安全のため更新を推奨します:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
