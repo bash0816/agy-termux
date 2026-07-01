@@ -9,27 +9,22 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 
 ## ⚠️ Known Issue (v1.0.12) / 既知の問題 (v1.0.12)
 
-**Current npm version (1.0.12) has a known compatibility issue with upstream agy 1.0.14.**
+**⚠️ Do not update or reinstall this package right now.**
 
-The current release dynamically fetches the latest upstream agy binary, which is version 1.0.14.
-This version uses `faccessat2` syscalls that are blocked by Android's seccomp filter, causing the tool
-to crash with a `SIGSYS` signal when invoked.
+The npm version 1.0.12 currently downloads the latest upstream `agy` binary (v1.0.14), which crashes on Android due to a `SIGSYS` signal (unsupported `faccessat2` syscall blocked by seccomp).
 
-**Workaround:** A fixed version (v1.0.14 with SIGSYS shim and version pin) is ready for release and will be published to npm shortly.
-Once released, update with:
+A fixed version with a SIGSYS workaround and locked binary version is ready and will be published to npm soon. After the update is released, you can safely update with:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
 
 ---
 
-**現在のnpmバージョン(1.0.12)はupstream agy 1.0.14との互換性に問題があります。**
+**⚠️ 今は更新・再インストールしないでください。**
 
-現在のリリースは最新のupstream agyバイナリを動的に取得しますが、これはバージョン1.0.14です。
-このバージョンは `faccessat2` syscallを使用しており、Android のseccompフィルタにブロックされるため、
-呼び出し時に `SIGSYS` シグナルでクラッシュします。
+現在のnpmバージョン(1.0.12)は最新の upstream `agy` バイナリ(v1.0.14)を取得しますが、Android では SIGSYS シグナルでクラッシュします(seccompによる `faccessat2` syscall ブロック)。
 
-**対応方法:** 修正版(1.0.14対応SIGSYS shim + バージョンpin)は準備が整い、近日中にnpm公開予定です。公開後は以下で更新してください：
+修正版(SIGSYS回避策対応・バージョン固定)の準備が整い、近日中にnpm公開予定です。公開後は以下で更新してください：
 ```sh
 npm update -g @bash0816/agy-termux
 ```
@@ -83,9 +78,11 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-The wrapper downloads a specific, verified version of the official `agy` release (currently 1.0.14), pinned in `config/agy-verified-versions.json`. This ensures compatibility with the Termux/Android SIGSYS workaround bundled in this package. To opt into the latest unverified upstream release instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility is not guaranteed).
+This package downloads a specific verified version of the `agy` binary (currently 1.0.14) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
+To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 
-wrapper は `config/agy-verified-versions.json` に固定された、動作検証済みの特定バージョン（現在は 1.0.14）の公式 `agy` Release をダウンロードします。これにより、本パッケージに同梱された Termux/Android 向け SIGSYS 回避策との互換性を保証します。検証されていない最新の upstream バージョンを試したい場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性は保証されません）。
+このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.14）をダウンロードします。SIGSYS対応の互換性が保証されます。
+最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 
 ## Usage / 使い方
 
