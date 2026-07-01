@@ -58,14 +58,18 @@ async function main() {
   }
   await gateDownload();
 
-  const { fetchLatestMeta, downloadBinary } = require('../lib/downloader');
+  const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
   const glibcLib = path.join(prefix, 'glibc', 'lib');
   const isPatch = needsPatch();
   const tmp = isPatch ? path.join(INSTALL_DIR, 'agy.va39') : path.join(INSTALL_DIR, '.bin.tmp');
   const versionFile = path.join(INSTALL_DIR, '.version');
 
-  process.stderr.write('[agy] 最新リリース情報を取得中...\n');
-  const { tagName, downloadUrl } = await fetchLatestMeta();
+  const useLatest = process.env.AGY_TERMUX_FORCE_LATEST === '1';
+  if (useLatest) {
+    process.stderr.write('[agy] AGY_TERMUX_FORCE_LATEST: 検証されていない最新版を使用します（自己責任）\n');
+  }
+  process.stderr.write(useLatest ? '[agy] 最新リリース情報を取得中...\n' : '[agy] 検証済みリリース情報を取得中...\n');
+  const { tagName, downloadUrl } = useLatest ? await fetchLatestMeta() : await fetchPinnedMeta();
 
   const cachedTag = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return ''; } })();
   const cacheHit = isPatch && fs.existsSync(tmp) && tagName === cachedTag;
@@ -89,7 +93,7 @@ async function main() {
   const child = spawn(loader, ['--library-path', glibcLib, tmp, ...args], {
     stdio: 'inherit',
     env: Object.assign({}, process.env, {
-      LD_PRELOAD: '',
+      LD_PRELOAD: path.join(__dirname, "..", "lib", "native", "sigsys_shim.so"),
       SSL_CERT_FILE: path.join(prefix, 'etc', 'tls', 'cert.pem'),
       GODEBUG: 'netdns=cgo',
     }),

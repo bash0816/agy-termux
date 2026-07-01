@@ -1,6 +1,6 @@
 {
   "name": "@bash0816/agy-termux",
-  "version": "1.0.12",
+  "version": "1.0.14",
   "description": "Google Antigravity CLI (agy) for Termux on Android ARM64",
   "bin": {
     "agy": "./bin/agy.js"
@@ -19,6 +19,7 @@
   "files": [
     "bin/",
     "lib/",
+    "config/",
     "README.md",
     "NOTICE.md",
     "LICENSE"
