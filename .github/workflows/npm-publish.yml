@@ -52,6 +52,8 @@ jobs:
           node --check bin/agy.js
           node --check lib/downloader.js
           node --check lib/patcher.js
+          node --check lib/check-updates.js
+          node --check lib/version-utils.js
 
       - name: Pack dry run
         run: npm pack --dry-run
@@ -108,17 +110,33 @@ jobs:
         run: npm dist-tag ls @bash0816/agy-termux
 
   promote-to-latest:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'promote-to-latest'
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'promote-to-latest' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify manifest matches promotion target
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANDIDATE=$(npm view @bash0816/agy-termux dist-tags.candidate)
+          echo "candidate: $CANDIDATE"
+          MANIFEST_VERSION=$(node -e "console.log(require('./config/agy-termux-release-manifest.json').latest_audited_version)")
+          echo "manifest latest_audited_version: $MANIFEST_VERSION"
+          if [ "$CANDIDATE" != "$MANIFEST_VERSION" ]; then
+            echo "Mismatch: candidate=$CANDIDATE manifest=$MANIFEST_VERSION. Update config/agy-termux-release-manifest.json and merge to main before promoting."
+            exit 1
+          fi
 
       - name: Swap candidate → latest (old latest → candidate)
         env:

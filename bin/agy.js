@@ -47,9 +47,16 @@ function needsPatch() {
 }
 async function main() {
   const args = process.argv.slice(2);
+  const pkg = require('../package.json');
+  const updateHelper = path.join(__dirname, '..', 'lib', 'check-updates.js');
   if (['update','--update','upgrade'].includes(args[0])) {
-    console.log('[agy] npm update -g @bash0816/agy-termux で更新できます。'); process.exit(0);
+    const { spawnSync } = require('child_process');
+    const result = spawnSync(process.execPath, [updateHelper, 'update', pkg.version, ...args.slice(1)], { stdio: 'inherit' });
+    process.exit(result.status ?? 1);
   }
+  try {
+    require('child_process').spawnSync(process.execPath, [updateHelper, 'notify', pkg.version], { stdio: 'inherit', timeout: 3000 });
+  } catch {}
   const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
   const loader = path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
   if (!fs.existsSync(loader)) {
