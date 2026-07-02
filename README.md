@@ -68,10 +68,10 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-This package downloads a specific verified version of the `agy` binary (currently 1.0.14) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
+This package downloads a specific version of the `agy` binary (currently 1.0.16) pinned in `config/agy-verified-versions.json`. See the Compatibility section below for the verification status of the currently pinned version.
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 
-このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.14）をダウンロードします。SIGSYS対応の互換性が保証されます。
+このパッケージは `config/agy-verified-versions.json` に固定されたバージョン（現在 1.0.16）をダウンロードします。検証状況は下記の Compatibility セクションを参照してください。
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 
 ## Usage / 使い方
@@ -120,7 +120,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Tested with agy 1.0.14 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.14（SIGSYS shim + バージョンpin対応）で実機TUI検証済み
+- Pending device verification with agy 1.0.16 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin対応）で実機TUI検証待ち
 
 ## Known limitations / 既知の制限
 
