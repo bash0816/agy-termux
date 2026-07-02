@@ -155,9 +155,11 @@ jobs:
             echo ""
             echo "Branch \`$branch\` pushed with an updated \`config/agy-candidate-version.json\` for agy ${version}."
             echo ""
-            echo "This workflow does not open a pull request (Actions is not granted pull-requests:write in this repo, by design). Open one manually:"
+            echo "This workflow does not open a pull request (Actions is not granted pull-requests:write in this repo, by design). Open one manually with:"
             echo ""
-            echo '```'
-            echo "gh pr create --base main --head $branch --title \"Track agy ${version} candidate\" --reviewer bash0816"
-            echo '```'
+            echo "- base: \`main\`"
+            echo "- head: \`$branch\`"
+            echo "- reviewer: \`bash0816\`"
+            echo ""
+            echo "(branch/version values above originate from the upstream release tag; treat as untrusted input and do not paste them into a shell command verbatim - use \`gh pr create\`'s flags directly instead of a copy-pasted one-liner)"
           } >> "$GITHUB_STEP_SUMMARY"
