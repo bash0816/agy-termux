@@ -69,7 +69,7 @@ async function main() {
     process.stderr.write('[agy] AGY_TERMUX_FORCE_LATEST: 検証されていない最新版を使用します（自己責任）\n');
   }
   process.stderr.write(useLatest ? '[agy] 最新リリース情報を取得中...\n' : '[agy] 検証済みリリース情報を取得中...\n');
-  const { tagName, downloadUrl } = useLatest ? await fetchLatestMeta() : await fetchPinnedMeta();
+  const { tagName, downloadUrl, sha256Tar, sha256Binary } = useLatest ? await fetchLatestMeta() : await fetchPinnedMeta();
 
   const cachedTag = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return ''; } })();
   const cacheHit = isPatch && fs.existsSync(tmp) && tagName === cachedTag;
@@ -77,7 +77,7 @@ async function main() {
   if (!cacheHit) {
     if (isPatch) await gateCompat();
     process.stderr.write(`[agy] ${tagName} をダウンロード中...\n`);
-    const binBuf = await downloadBinary(downloadUrl);
+    const binBuf = await downloadBinary(downloadUrl, sha256Tar, sha256Binary);
     if (isPatch) {
       const { applyVA39Patch } = require('../lib/patcher');
       applyVA39Patch(binBuf);
