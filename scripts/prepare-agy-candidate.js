@@ -3,7 +3,7 @@
 
 const https = require('https');
 const { verifyBinary } = require('./lib/agy-binary-verify');
-const { normalizeVersion } = require('./lib/version-utils');
+const { normalizeVersion, getTokyoDate } = require('./lib/version-utils');
 const { applyVA39Patch } = require('../lib/patcher');
 const fs = require('fs');
 
@@ -12,7 +12,18 @@ const ASSET_NAME = 'agy_cli_linux_arm64.tar.gz';
 
 function httpsGet(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'agy-termux' } }, (res) => {
+    const headers = { 'User-Agent': 'agy-termux' };
+    // If a GH_TOKEN is available (e.g. passed through from the calling
+    // workflow as `env: GH_TOKEN: ${{ github.token }}`), authenticate the
+    // api.github.com call with it. Unauthenticated requests are capped at
+    // 60 req/hour/IP, and GitHub Actions' shared runner IPs share that
+    // quota across many unrelated workflows/repos, so this call can fail
+    // intermittently without it. Falls back to unauthenticated (User-Agent
+    // only) when GH_TOKEN is unset, e.g. for local manual runs.
+    if (process.env.GH_TOKEN) {
+      headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
+    }
+    https.get(url, { headers }, (res) => {
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300) &&
           !(res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)) {
         return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
@@ -82,12 +93,7 @@ async function main() {
     }
 
     // Current date in Asia/Tokyo timezone
-    const tokyoDate = new Date().toLocaleDateString('en-CA', {
-      timeZone: 'Asia/Tokyo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
+    const tokyoDate = getTokyoDate();
 
     // Normalize version (strip 'v' prefix if present)
     const normalizedVersion = normalizeVersion(version);
