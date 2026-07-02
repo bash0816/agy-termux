@@ -76,7 +76,7 @@ function main() {
       asset_updated_at: candidateMeta.asset_updated_at,
       source_repo: candidateMeta.source_repo,
       verified_date: getTokyoDate(),
-      notes: `Verified working with SIGSYS shim (faccessat2 workaround for upstream ${candidateMeta.tag_name}+) on Termux/Android ARM64`,
+      notes: `Promoted via promote-agy-candidate.js --confirm-device-verified on ${getTokyoDate()}. VA39 patch-count static check passed with no regression from the prior verified version. Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified.`,
     };
 
     // Write verified config
