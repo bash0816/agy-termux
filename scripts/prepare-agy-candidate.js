@@ -3,6 +3,7 @@
 
 const https = require('https');
 const { verifyBinary } = require('./lib/agy-binary-verify');
+const { normalizeVersion } = require('./lib/version-utils');
 const { applyVA39Patch } = require('../lib/patcher');
 const fs = require('fs');
 
@@ -12,6 +13,10 @@ const ASSET_NAME = 'agy_cli_linux_arm64.tar.gz';
 function httpsGet(url) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'agy-termux' } }, (res) => {
+      if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300) &&
+          !(res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)) {
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      }
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
         return httpsGet(res.headers.location).then(resolve).catch(reject);
       const chunks = [];
@@ -20,13 +25,6 @@ function httpsGet(url) {
       res.on('error', reject);
     }).on('error', reject);
   });
-}
-
-/**
- * Normalize version tag (strip 'v' prefix for comparison)
- */
-function normalizeVersion(v) {
-  return v.replace(/^v/, '');
 }
 
 async function main() {

@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { normalizeVersion } = require('./lib/version-utils');
 
 const CANDIDATE_CONFIG_PATH = './config/agy-candidate-version.json';
 const VERIFIED_CONFIG_PATH = './config/agy-verified-versions.json';
@@ -10,11 +11,11 @@ const PACKAGE_JSON_PATH = './package.json';
 
 function main() {
   try {
-    const version = process.argv[2];
+    const rawVersion = process.argv[2];
     const confirmFlag = process.argv[3];
 
     // Validate arguments
-    if (!version) {
+    if (!rawVersion) {
       console.error('Usage: promote-agy-candidate.js <version> --confirm-device-verified');
       process.exit(1);
     }
@@ -31,6 +32,11 @@ function main() {
       console.error('This script should be run manually after device verification');
       process.exit(1);
     }
+
+    // Normalize version (strip 'v' prefix, same convention prepare-agy-candidate.js
+    // uses when writing candidateMeta.tag_name) so `promote-agy-candidate.js v1.0.16`
+    // and `promote-agy-candidate.js 1.0.16` both match a candidate tag_name of '1.0.16'.
+    const version = normalizeVersion(rawVersion);
 
     // Load candidate config
     if (!fs.existsSync(CANDIDATE_CONFIG_PATH)) {

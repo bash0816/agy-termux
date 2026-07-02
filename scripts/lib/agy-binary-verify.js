@@ -11,6 +11,10 @@ function httpsGet(url) {
     https.get(url, { headers: { 'User-Agent': 'agy-termux' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
         return httpsGet(res.headers.location).then(resolve).catch(reject);
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume(); // drain to free memory
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve(Buffer.concat(chunks)));
@@ -51,6 +55,13 @@ async function verifyBinary(downloadUrl) {
     }
 
     // Validate tar entries (path traversal / symlink / hardlink detection)
+    // KNOWN LIMITATION: this parses the human-readable `tar -tzvf` listing by
+    // whitespace, so filenames containing spaces could be mis-split (the
+    // extracted "fileInfo" would only be the last whitespace-delimited token).
+    // The upstream agy release asset is a flat two-entry tarball with no
+    // spaces in its paths, so this is acceptable for now. If upstream ever
+    // ships filenames with spaces, switch to `tar -tzf` (plain name list,
+    // one path per line, no metadata) instead.
     const entries = tarListStr.trim().split('\n');
     for (const entry of entries) {
       if (!entry.trim()) continue;
