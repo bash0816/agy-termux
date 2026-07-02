@@ -16,5 +16,5 @@
   "asset_updated_at": "2026-07-02T18:33:04Z",
   "source_repo": "google-antigravity/antigravity-cli",
   "verified_date": "2026-07-03",
-  "notes": "VA39 patch-count static check matched 1.0.14 exactly (no regression). SIGSYS shim compatibility NOT yet confirmed on-device — TUI/functional verification pending before promotion."
+  "notes": "VA39 patch-count static check matched 1.0.14 exactly (no regression). On-device smoke test passed 2026-07-03 (--version pinned download+sha256 verify+VA39 patch, -p \"echo hello\" SIGSYS-repro command with no crash, cache-hit, sha256 tamper rejection). Full interactive TUI session verification still pending before promotion."
 }

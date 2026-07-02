@@ -120,7 +120,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Pending device verification with agy 1.0.16 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin対応）で実機TUI検証待ち
+- Smoke-tested with agy 1.0.16 (SIGSYS shim + version pin) on Android 12+ — full interactive TUI session verification pending / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin対応）でスモークテスト済み — 対話的TUIセッションでの検証は未実施
 
 ## Known limitations / 既知の制限
 
