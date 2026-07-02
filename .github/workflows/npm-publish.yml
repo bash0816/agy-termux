@@ -53,6 +53,7 @@ jobs:
           node --check lib/downloader.js
           node --check lib/patcher.js
           node --check scripts/lib/agy-binary-verify.js
+          node --check scripts/lib/version-utils.js
           node --check scripts/prepare-agy-candidate.js
           node --check scripts/update-agy-candidate-config.js
           node --check scripts/promote-agy-candidate.js

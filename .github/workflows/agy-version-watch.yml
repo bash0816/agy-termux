@@ -53,17 +53,13 @@ jobs:
           verified="${{ steps.verified.outputs.version }}"
           branch="automation/agy-${latest}"
 
+          pr_count=$(gh pr list --repo bash0816/agy-termux --base main --head "$branch" --state open --json number --jq 'length')
           if [ "$latest" = "$verified" ]; then
             echo "mode=skip_uptodate" >> "$GITHUB_OUTPUT"
             echo "Already verified: $latest == $verified"
-          elif gh pr list --base main --head "$branch" --state open --json number --jq 'length' | grep -q '^0$' || [ $(gh pr list --base main --head "$branch" --state open --json number --jq 'length') -gt 0 ]; then
-            if [ $(gh pr list --base main --head "$branch" --state open --json number --jq 'length') -gt 0 ]; then
-              echo "mode=skip_pending" >> "$GITHUB_OUTPUT"
-              echo "Open PR already exists for $latest"
-            else
-              echo "mode=new_intake" >> "$GITHUB_OUTPUT"
-              echo "New version to intake: $latest"
-            fi
+          elif [ "$pr_count" -gt 0 ]; then
+            echo "mode=skip_pending" >> "$GITHUB_OUTPUT"
+            echo "Open PR already exists for $latest"
           else
             echo "mode=new_intake" >> "$GITHUB_OUTPUT"
             echo "New version to intake: $latest"
@@ -104,54 +100,50 @@ jobs:
           git commit -m "Track agy ${version} candidate"
           git push --force-with-lease origin "$branch"
 
-          # Prepare PR body with candidate metadata
+          # Prepare PR body with candidate metadata.
+          # Built with `{ ... } > file` + `gh pr create --body-file` (instead of
+          # nested $(...) / heredoc string concatenation) to avoid quoting hazards.
           candidate=$(cat config/agy-candidate-version.json)
           sha256_tar=$(echo "$candidate" | jq -r '.sha256_tar')
           sha256_bin=$(echo "$candidate" | jq -r '.sha256_binary')
           va39_counts=$(echo "$candidate" | jq -c '.va39_patch_counts')
-          va39_regression=$(echo "$candidate" | jq -c '.va39_patch_regression // []')
+          va39_regression_count=$(echo "$candidate" | jq '.va39_patch_regression | length')
 
-          pr_body=$(cat <<EOF
-          Automated upstream agy intake from google-antigravity/antigravity-cli
+          pr_body_file=$(mktemp)
+          {
+            echo "Automated upstream agy intake from google-antigravity/antigravity-cli"
+            echo ""
+            echo "**Candidate Version:** ${version}"
+            echo "**SHA256 (tarball):** \`${sha256_tar}\`"
+            echo "**SHA256 (binary):** \`${sha256_bin}\`"
+            echo "**VA39 Patch Counts:** \`${va39_counts}\`"
+            if [ "$va39_regression_count" -gt 0 ]; then
+              echo ""
+              echo "⚠️ **VA39 Patch Regression Detected:**"
+              echo "$candidate" | jq -r '.va39_patch_regression[] | "- " + .'
+            fi
+            echo ""
+            echo "**Action Required:**"
+            echo "⚠️ Device A/B TUI verification is mandatory. After verification:"
+            echo ""
+            echo "1. Run manual verification on devices"
+            echo "2. Once verified, execute:"
+            echo '   ```'
+            echo "   scripts/promote-agy-candidate.js ${version} --confirm-device-verified"
+            echo '   ```'
+            echo "3. Commit and merge the promotion PR"
+            echo "4. Only then: \`npm publish\`"
+            echo ""
+            echo "⚠️ **Do not npm publish until device verification is complete and promotion script executed.**"
+            echo "⚠️ **This PR does not trigger npm publish - manual steps required.**"
+          } > "$pr_body_file"
 
-          **Candidate Version:** ${version}
-          **SHA256 (tarball):** \`${sha256_tar}\`
-          **SHA256 (binary):** \`${sha256_bin}\`
-          **VA39 Patch Counts:** \`${va39_counts}\`
-          EOF
-          )
-
-          if [ "$(echo "$va39_regression" | jq 'length')" -gt 0 ]; then
-            pr_body="$pr_body
-
-          ⚠️ **VA39 Patch Regression Detected:**
-          $(echo "$va39_regression" | jq -r '.[] | "- " + .')"
-          fi
-
-          pr_body="$pr_body
-
-          **Action Required:**
-          ⚠️ Device A/B TUI verification is mandatory. After verification:
-
-          1. Run manual verification on devices
-          2. Once verified, execute:
-             \`\`\`
-             scripts/promote-agy-candidate.js ${version} --confirm-device-verified
-             \`\`\`
-          3. Commit and merge the promotion PR
-          4. Only then: \`npm publish\`
-
-          ⚠️ **Do not npm publish until device verification is complete and promotion script executed.**
-          ⚠️ **This PR does not trigger npm publish - manual steps required.**
-          EOF
-          )
-
-          existing=$(gh pr list --base main --head "$branch" --json number --jq 'length')
+          existing=$(gh pr list --repo bash0816/agy-termux --base main --head "$branch" --state open --json number --jq 'length')
           if [ "$existing" -eq 0 ]; then
             gh pr create \
               --base main \
               --head "$branch" \
               --title "Track agy ${version} candidate" \
               --reviewer bash0816 \
-              --body "$pr_body"
+              --body-file "$pr_body_file"
           fi
