@@ -49,9 +49,20 @@ jobs:
         id: mode
         run: |
           set -eu
-          latest="${{ steps.latest.outputs.version }}"
-          verified="${{ steps.verified.outputs.version }}"
+          # Strip a possible 'v' prefix before comparing, since
+          # config/agy-verified-versions.json.verified_version and
+          # candidateMeta.tag_name (written by prepare-agy-candidate.js via
+          # normalizeVersion()) are always stored without it. Without this,
+          # an upstream tag like "v1.0.16" would never match an already
+          # verified "1.0.16" and would be misdetected as new_intake forever.
+          latest_raw="${{ steps.latest.outputs.version }}"
+          latest="${latest_raw#v}"
+          verified_raw="${{ steps.verified.outputs.version }}"
+          verified="${verified_raw#v}"
           branch="automation/agy-${latest}"
+
+          echo "latest_normalized=$latest" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
           pr_count=$(gh pr list --repo bash0816/agy-termux --base main --head "$branch" --state open --json number --jq 'length')
           if [ "$latest" = "$verified" ]; then
@@ -71,6 +82,10 @@ jobs:
         if: steps.mode.outputs.mode == 'new_intake'
         run: |
           set -eu
+          # Intentionally the RAW upstream tag (not normalized): the GitHub
+          # releases/tags/<tag> API lookup inside prepare-agy-candidate.js
+          # needs the exact tag string as it exists on GitHub. The script
+          # normalizes internally for the tag_name field it writes out.
           version="${{ steps.latest.outputs.version }}"
           node scripts/prepare-agy-candidate.js "$version" > /tmp/candidate.json
           echo "Candidate metadata:"
@@ -89,8 +104,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          version="${{ steps.latest.outputs.version }}"
-          branch="automation/agy-${version}"
+          # Reuse the same normalized version / branch computed in the
+          # "Determine mode" step (rather than recomputing from the raw
+          # upstream tag here) so the branch this step pushes to is always
+          # identical to the branch the mode step's `gh pr list` check
+          # looked for. Recomputing independently risked drifting apart if
+          # upstream ever used a v-prefixed tag (e.g. mode step checks
+          # automation/agy-1.0.16 but this step pushes automation/agy-v1.0.16).
+          version="${{ steps.mode.outputs.latest_normalized }}"
+          branch="${{ steps.mode.outputs.branch }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
