@@ -11,7 +11,7 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
+  pull-requests: read
 
 jobs:
   intake:
@@ -123,23 +123,22 @@ jobs:
           node scripts/update-agy-candidate-config.js < /tmp/candidate.json
           echo "Candidate config updated"
 
-      - name: Commit and create PR
+      - name: Commit and push candidate branch
         if: steps.mode.outputs.mode == 'new_intake'
+        # NOTE: This workflow intentionally stops after pushing the branch.
+        # Opening the pull request is a manual step performed by a human
+        # with an authenticated `gh` session (A3 decision, 2026-07-03):
+        # granting the Actions token `pull-requests: write` (or adding a
+        # repo-scoped PAT) so the workflow could open PRs itself was
+        # rejected as broader-than-needed privilege for this low-frequency
+        # candidate-intake task. See the job summary below for the manual
+        # follow-up command.
         env:
-          # See the script-injection note on the "Determine mode" step above -
-          # same reasoning applies here.
           LATEST_NORMALIZED: ${{ steps.mode.outputs.latest_normalized }}
           BRANCH: ${{ steps.mode.outputs.branch }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          # Reuse the same normalized version / branch computed in the
-          # "Determine mode" step (rather than recomputing from the raw
-          # upstream tag here) so the branch this step pushes to is always
-          # identical to the branch the mode step's `gh pr list` check
-          # looked for. Recomputing independently risked drifting apart if
-          # upstream ever used a v-prefixed tag (e.g. mode step checks
-          # automation/agy-1.0.16 but this step pushes automation/agy-v1.0.16).
           version="$LATEST_NORMALIZED"
           branch="$BRANCH"
 
@@ -151,51 +150,14 @@ jobs:
           git commit -m "Track agy ${version} candidate"
           git push --force-with-lease origin "$branch"
 
-          # Prepare PR body with candidate metadata.
-          # Built with `{ ... } > file` + `gh pr create --body-file` (instead of
-          # nested $(...) / heredoc string concatenation) to avoid quoting hazards.
-          candidate=$(cat config/agy-candidate-version.json)
-          sha256_tar=$(echo "$candidate" | jq -r '.sha256_tar')
-          sha256_bin=$(echo "$candidate" | jq -r '.sha256_binary')
-          va39_counts=$(echo "$candidate" | jq -c '.va39_patch_counts')
-          va39_regression_count=$(echo "$candidate" | jq '.va39_patch_regression | length')
-
-          pr_body_file=$(mktemp)
           {
-            echo "Automated upstream agy intake from google-antigravity/antigravity-cli"
+            echo "### agy candidate branch pushed"
             echo ""
-            echo "**Candidate Version:** ${version}"
-            echo "**SHA256 (tarball):** \`${sha256_tar}\`"
-            echo "**SHA256 (binary):** \`${sha256_bin}\`"
-            echo "**VA39 Patch Counts:** \`${va39_counts}\`"
-            if [ "$va39_regression_count" -gt 0 ]; then
-              echo ""
-              echo "⚠️ **VA39 Patch Regression Detected:**"
-              echo "$candidate" | jq -r '.va39_patch_regression[] | "- " + .'
-            fi
+            echo "Branch \`$branch\` pushed with an updated \`config/agy-candidate-version.json\` for agy ${version}."
             echo ""
-            echo "**Action Required:**"
-            echo "⚠️ Device A/B TUI verification is mandatory. After verification:"
+            echo "This workflow does not open a pull request (Actions is not granted pull-requests:write in this repo, by design). Open one manually:"
             echo ""
-            echo "1. Run manual verification on devices"
-            echo "2. Once verified, execute:"
-            echo '   ```'
-            echo "   scripts/promote-agy-candidate.js ${version} --confirm-device-verified"
-            echo '   ```'
-            echo "3. Commit and merge the promotion PR"
-            echo "4. Only then: \`npm publish\`"
-            echo ""
-            echo "⚠️ **Do not npm publish until device verification is complete and promotion script executed.**"
-            echo "⚠️ **This PR does not trigger npm publish - manual steps required.**"
-          } > "$pr_body_file"
-
-          # No --repo: rely on gh's ambient repo detection (see note above).
-          existing=$(gh pr list --base main --head "$branch" --state open --json number --jq 'length')
-          if [ "$existing" -eq 0 ]; then
-            gh pr create \
-              --base main \
-              --head "$branch" \
-              --title "Track agy ${version} candidate" \
-              --reviewer bash0816 \
-              --body-file "$pr_body_file"
-          fi
+            echo '```'
+            echo "gh pr create --base main --head $branch --title \"Track agy ${version} candidate\" --reviewer bash0816"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
