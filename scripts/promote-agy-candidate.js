@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { normalizeVersion } = require('./lib/version-utils');
+const { normalizeVersion, getTokyoDate } = require('./lib/version-utils');
 
 const CANDIDATE_CONFIG_PATH = './config/agy-candidate-version.json';
 const VERIFIED_CONFIG_PATH = './config/agy-verified-versions.json';
@@ -75,12 +75,7 @@ function main() {
       asset_id: candidateMeta.asset_id,
       asset_updated_at: candidateMeta.asset_updated_at,
       source_repo: candidateMeta.source_repo,
-      verified_date: new Date().toLocaleDateString('en-CA', {
-        timeZone: 'Asia/Tokyo',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }),
+      verified_date: getTokyoDate(),
       notes: `Verified working with SIGSYS shim (faccessat2 workaround for upstream ${candidateMeta.tag_name}+) on Termux/Android ARM64`,
     };
 
