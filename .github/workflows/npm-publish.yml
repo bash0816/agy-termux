@@ -52,6 +52,36 @@ jobs:
           node --check bin/agy.js
           node --check lib/downloader.js
           node --check lib/patcher.js
+          node --check scripts/lib/agy-binary-verify.js
+          node --check scripts/prepare-agy-candidate.js
+          node --check scripts/update-agy-candidate-config.js
+          node --check scripts/promote-agy-candidate.js
+
+      - name: Publish preflight check
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+
+          // Check that package.json version matches verified_version
+          const pkg = require('./package.json');
+          const verified = require('./config/agy-verified-versions.json');
+
+          if (pkg.version !== verified.verified_version) {
+            throw new Error(`Version mismatch: package.json (${pkg.version}) != verified_version (${verified.verified_version})`);
+          }
+          console.log(`✓ Version match: ${pkg.version}`);
+
+          // Check that verified config has sha256 fields
+          if (!verified.sha256_tar || typeof verified.sha256_tar !== 'string' || !verified.sha256_tar.trim()) {
+            throw new Error('Missing or empty sha256_tar in verified config');
+          }
+          if (!verified.sha256_binary || typeof verified.sha256_binary !== 'string' || !verified.sha256_binary.trim()) {
+            throw new Error('Missing or empty sha256_binary in verified config');
+          }
+          console.log(`✓ SHA256 checksums present (tar: ${verified.sha256_tar.substring(0, 8)}..., bin: ${verified.sha256_binary.substring(0, 8)}...)`);
+
+          NODE
 
       - name: Pack dry run
         run: npm pack --dry-run

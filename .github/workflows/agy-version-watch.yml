@@ -10,116 +10,85 @@ permissions:
   pull-requests: write
 
 jobs:
-  watch:
+  intake:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
           token: ${{ github.token }}
 
-      - name: Fetch latest wallentx release
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Fetch upstream latest version (google-antigravity)
         id: latest
         run: |
           set -eu
-          tag=$(gh api repos/wallentx/antigravity-cli-termux/releases/latest --jq '.tag_name')
-          version="${tag#v}"
-          if [ -z "$version" ]; then
-            echo "ERROR: could not fetch latest version" >&2
+          latest=$(gh api repos/google-antigravity/antigravity-cli/releases/latest --jq '.tag_name')
+          if [ -z "$latest" ]; then
+            echo "ERROR: Failed to fetch latest version from upstream" >&2
             exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Latest wallentx release: $version"
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+          echo "Upstream latest: $latest"
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Check current version
-        id: current
+      - name: Check current verified version
+        id: verified
         run: |
           set -eu
-          current=$(node -p "require('./lib/config').AGY_VERSION")
-          echo "version=$current" >> "$GITHUB_OUTPUT"
-          echo "Current package version: $current"
+          verified=$(node -p "require('./config/agy-verified-versions.json').verified_version")
+          echo "version=$verified" >> "$GITHUB_OUTPUT"
+          echo "Current verified version: $verified"
 
-      - name: Determine if update needed
+      - name: Determine mode (skip_uptodate / skip_pending / new_intake)
         id: mode
         run: |
           set -eu
           latest="${{ steps.latest.outputs.version }}"
-          current="${{ steps.current.outputs.version }}"
+          verified="${{ steps.verified.outputs.version }}"
           branch="automation/agy-${latest}"
-          if [ "$latest" = "$current" ]; then
-            echo "mode=skip" >> "$GITHUB_OUTPUT"
-            echo "Already up to date: $current"
-          elif git ls-remote --heads origin "$branch" | grep -q .; then
-            echo "mode=skip" >> "$GITHUB_OUTPUT"
-            echo "Branch already exists: $branch"
+
+          if [ "$latest" = "$verified" ]; then
+            echo "mode=skip_uptodate" >> "$GITHUB_OUTPUT"
+            echo "Already verified: $latest == $verified"
+          elif gh pr list --base main --head "$branch" --state open --json number --jq 'length' | grep -q '^0$' || [ $(gh pr list --base main --head "$branch" --state open --json number --jq 'length') -gt 0 ]; then
+            if [ $(gh pr list --base main --head "$branch" --state open --json number --jq 'length') -gt 0 ]; then
+              echo "mode=skip_pending" >> "$GITHUB_OUTPUT"
+              echo "Open PR already exists for $latest"
+            else
+              echo "mode=new_intake" >> "$GITHUB_OUTPUT"
+              echo "New version to intake: $latest"
+            fi
           else
-            echo "mode=update" >> "$GITHUB_OUTPUT"
-            echo "New version detected: $latest"
+            echo "mode=new_intake" >> "$GITHUB_OUTPUT"
+            echo "New version to intake: $latest"
           fi
-
-      - name: Download and verify tarball
-        if: steps.mode.outputs.mode == 'update'
-        id: verify
-        run: |
-          set -eu
-          tag="${{ steps.latest.outputs.tag }}"
-          version="${{ steps.latest.outputs.version }}"
-          url="https://github.com/wallentx/antigravity-cli-termux/releases/download/${tag}/antigravity-termux-standalone.tar.gz"
-
-          echo "Downloading $url ..."
-          curl -fsSL -o /tmp/agy-standalone.tar.gz "$url"
-
-          sha256_tar=$(sha256sum /tmp/agy-standalone.tar.gz | cut -d' ' -f1)
-          echo "SHA256 tarball: $sha256_tar"
-
-          tar -xzf /tmp/agy-standalone.tar.gz -C /tmp agy.va39
-          sha256_va39=$(sha256sum /tmp/agy.va39 | cut -d' ' -f1)
-          echo "SHA256 agy.va39: $sha256_va39"
-
-          gh attestation verify /tmp/agy-standalone.tar.gz -R wallentx/antigravity-cli-termux
-          echo "Attestation verified"
-
-          echo "sha256_tar=$sha256_tar" >> "$GITHUB_OUTPUT"
-          echo "sha256_va39=$sha256_va39" >> "$GITHUB_OUTPUT"
-          echo "download_url=$url" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Update config.js
-        if: steps.mode.outputs.mode == 'update'
+      - name: Prepare candidate metadata
+        if: steps.mode.outputs.mode == 'new_intake'
         run: |
           set -eu
           version="${{ steps.latest.outputs.version }}"
-          tag="${{ steps.latest.outputs.tag }}"
-          sha256_tar="${{ steps.verify.outputs.sha256_tar }}"
-          sha256_va39="${{ steps.verify.outputs.sha256_va39 }}"
-          url="${{ steps.verify.outputs.download_url }}"
+          node scripts/prepare-agy-candidate.js "$version" > /tmp/candidate.json
+          echo "Candidate metadata:"
+          cat /tmp/candidate.json
 
-          node - <<NODE
-          const fs = require('fs');
-          let src = fs.readFileSync('lib/config.js', 'utf8');
-          src = src.replace(/AGY_VERSION: '[^']*'/, \`AGY_VERSION: '${version}'\`);
-          src = src.replace(/DOWNLOAD_URL: '[^']*'/, \`DOWNLOAD_URL: '${url}'\`);
-          src = src.replace(/SHA256_TAR: '[^']*'/, \`SHA256_TAR: '${sha256_tar}'\`);
-          src = src.replace(/SHA256_VA39: '[^']*'/, \`SHA256_VA39: '${sha256_va39}'\`);
-          fs.writeFileSync('lib/config.js', src);
-          NODE
-
-          node - <<NODE
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.version = '${version}';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          NODE
-
-          echo "Updated config.js and package.json to $version"
+      - name: Update candidate config
+        if: steps.mode.outputs.mode == 'new_intake'
+        run: |
+          set -eu
+          node scripts/update-agy-candidate-config.js < /tmp/candidate.json
+          echo "Candidate config updated"
 
       - name: Commit and create PR
-        if: steps.mode.outputs.mode == 'update'
+        if: steps.mode.outputs.mode == 'new_intake'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -130,14 +99,59 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch" origin/main
-          git add lib/config.js package.json
-          git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "Track agy ${version} from wallentx"
+          git add config/agy-candidate-version.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Track agy ${version} candidate"
           git push --force-with-lease origin "$branch"
 
-          gh pr create \
-            --base main \
-            --head "$branch" \
-            --title "Track agy ${version} from wallentx" \
-            --reviewer bash0816 \
-            --body "$(printf 'Automated agy version intake.\n\n- upstream: wallentx/antigravity-cli-termux@%s\n- sha256 tarball: %s\n- sha256 agy.va39: %s\n- attestation: verified\n\nNext: Device B verification -> merge -> npm publish dispatch' "$version" "${{ steps.verify.outputs.sha256_tar }}" "${{ steps.verify.outputs.sha256_va39 }}")"
+          # Prepare PR body with candidate metadata
+          candidate=$(cat config/agy-candidate-version.json)
+          sha256_tar=$(echo "$candidate" | jq -r '.sha256_tar')
+          sha256_bin=$(echo "$candidate" | jq -r '.sha256_binary')
+          va39_counts=$(echo "$candidate" | jq -c '.va39_patch_counts')
+          va39_regression=$(echo "$candidate" | jq -c '.va39_patch_regression // []')
+
+          pr_body=$(cat <<EOF
+          Automated upstream agy intake from google-antigravity/antigravity-cli
+
+          **Candidate Version:** ${version}
+          **SHA256 (tarball):** \`${sha256_tar}\`
+          **SHA256 (binary):** \`${sha256_bin}\`
+          **VA39 Patch Counts:** \`${va39_counts}\`
+          EOF
+          )
+
+          if [ "$(echo "$va39_regression" | jq 'length')" -gt 0 ]; then
+            pr_body="$pr_body
+
+          ⚠️ **VA39 Patch Regression Detected:**
+          $(echo "$va39_regression" | jq -r '.[] | "- " + .')"
+          fi
+
+          pr_body="$pr_body
+
+          **Action Required:**
+          ⚠️ Device A/B TUI verification is mandatory. After verification:
+
+          1. Run manual verification on devices
+          2. Once verified, execute:
+             \`\`\`
+             scripts/promote-agy-candidate.js ${version} --confirm-device-verified
+             \`\`\`
+          3. Commit and merge the promotion PR
+          4. Only then: \`npm publish\`
+
+          ⚠️ **Do not npm publish until device verification is complete and promotion script executed.**
+          ⚠️ **This PR does not trigger npm publish - manual steps required.**
+          EOF
+          )
+
+          existing=$(gh pr list --base main --head "$branch" --json number --jq 'length')
+          if [ "$existing" -eq 0 ]; then
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "Track agy ${version} candidate" \
+              --reviewer bash0816 \
+              --body "$pr_body"
+          fi
