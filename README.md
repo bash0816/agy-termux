@@ -7,7 +7,7 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
-## ✅ v1.0.14 Released — Update Recommended / v1.0.14 リリース済み — 更新を推奨します
+## ✅ v1.0.16 Released — Update Recommended / v1.0.16 リリース済み — 更新を推奨します
 
 v1.0.12 itself is not broken. The crash (SIGSYS from a `faccessat2` syscall on Android) happens when the **official upstream `agy` binary** is updated to a version that uses this syscall (introduced upstream around 2026-06-30) — and v1.0.12 always fetched the latest official binary dynamically with no version pinning, so existing v1.0.12 installs could pick up the broken binary without any npm package update. v1.0.14 fixes this by pinning to a verified compatible binary version and adding a syscall shim workaround. Update is recommended for safety:
 ```sh
@@ -68,10 +68,10 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-This package downloads a specific verified version of the `agy` binary (currently 1.0.14) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
+This package downloads a specific verified version of the `agy` binary (currently 1.0.16) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 
-このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.14）をダウンロードします。SIGSYS対応の互換性が保証されます。
+このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.16）をダウンロードします。SIGSYS対応の互換性が保証されます。
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 
 ## Usage / 使い方
@@ -138,7 +138,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Tested with agy 1.0.14 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.14（SIGSYS shim + バージョンpin対応）で実機TUI検証済み
+- Tested with agy 1.0.16 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin対応）で実機TUI検証済み
 
 ## Known limitations / 既知の制限
 

@@ -73,18 +73,12 @@ function main() {
 
     // Prepare verified config
     const verifiedMeta = {
-      verified_version: candidateMeta.tag_name,
       tag_name: candidateMeta.tag_name,
       download_url: candidateMeta.download_url,
       sha256_tar: candidateMeta.sha256_tar,
       sha256_binary: candidateMeta.sha256_binary,
       va39_patch_counts: candidateMeta.va39_patch_counts,
-      release_id: candidateMeta.release_id,
-      asset_id: candidateMeta.asset_id,
-      asset_updated_at: candidateMeta.asset_updated_at,
       source_repo: candidateMeta.source_repo,
-      verified_date: getTokyoDate(),
-      notes: `Promoted via promote-agy-candidate.js --confirm-device-verified on ${getTokyoDate()}. VA39 patch-count static check passed with no regression from the prior verified version. Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified.`,
     };
 
     // Write verified config

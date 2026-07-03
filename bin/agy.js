@@ -54,12 +54,10 @@ async function main() {
   // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn は一切行わない。
   if (['--version', '-v', '-V', 'version'].includes(args[0])) {
     const pkg = require('../package.json');
-    const verified = require('../config/agy-verified-versions.json');
     const versionFile = path.join(INSTALL_DIR, '.version');
     const cached = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return 'not installed'; } })();
-    console.log(`agy-termux wrapper: ${pkg.version}`);
-    console.log(`verified upstream:  ${verified.verified_version}`);
-    console.log(`cached upstream:    ${cached}`);
+    console.log(`agy-termux: ${pkg.version}`);
+    console.log(`cached:     ${cached}`);
     process.exit(0);
   }
 

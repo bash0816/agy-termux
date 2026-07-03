@@ -45,7 +45,7 @@ jobs:
         id: verified
         run: |
           set -eu
-          verified=$(node -p "require('./config/agy-verified-versions.json').verified_version")
+          verified=$(node -p "require('./config/agy-verified-versions.json').tag_name")
           echo "version=$verified" >> "$GITHUB_OUTPUT"
           echo "Current verified version: $verified"
 
