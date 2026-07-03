@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const { getTokyoDate } = require('./lib/version-utils');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -33,7 +33,6 @@ function main() {
 
     // 2. Load existing verified config and merge candidate fields
     originalVerifiedConfig = fs.readFileSync(VERIFIED_CONFIG_PATH, 'utf8');
-    const verifiedMeta = JSON.parse(originalVerifiedConfig);
 
     // Merge candidate fields into verified config
     const stagedMeta = {
@@ -61,7 +60,6 @@ function main() {
     // 4. Temporarily update package.json version
     originalPackageJson = fs.readFileSync(PACKAGE_JSON_PATH, 'utf8');
     const packageJson = JSON.parse(originalPackageJson);
-    const originalVersion = packageJson.version;
     packageJson.version = candidateVersion;
     fs.writeFileSync(
       PACKAGE_JSON_PATH,
@@ -69,6 +67,7 @@ function main() {
     );
 
     // 5. Run npm pack and capture output
+    let tgzPath = null;
     let tgzFileName = null;
     try {
       const result = spawnSync('npm', ['pack'], {
@@ -93,17 +92,19 @@ function main() {
         throw new Error(`Invalid npm pack output: ${result.stdout}`);
       }
 
-      const tgzPath = path.join(REPO_ROOT, tgzFileName);
+      tgzPath = path.join(REPO_ROOT, tgzFileName);
       if (!fs.existsSync(tgzPath)) {
         throw new Error(`Generated tgz file not found: ${tgzPath}`);
       }
-
-      // 7. Success: output the tgz path
-      console.log(tgzPath);
     } finally {
       // 6. Always restore original files
       fs.writeFileSync(VERIFIED_CONFIG_PATH, originalVerifiedConfig);
       fs.writeFileSync(PACKAGE_JSON_PATH, originalPackageJson);
+    }
+
+    // 7. Success: output the tgz path after cleanup
+    if (tgzPath) {
+      console.log(tgzPath);
     }
   } catch (e) {
     console.error(`Error: ${e.message}`);
