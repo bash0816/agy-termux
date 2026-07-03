@@ -64,7 +64,33 @@ async function main() {
   }
 
   if (['update','--update','upgrade'].includes(args[0])) {
-    console.log('[agy] npm update -g @bash0816/agy-termux で更新できます。'); process.exit(0);
+    const { spawnSync } = require('child_process');
+    const pkg = require('../package.json');
+    const currentVersion = pkg.version;
+    function isNewer(a, b) {
+      const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+      for (let i = 0; i < 3; i++) { if (pa[i] > pb[i]) return true; if (pa[i] < pb[i]) return false; }
+      return false;
+    }
+    process.stderr.write('[agy] npm registry を確認中...\n');
+    const view = spawnSync('npm', ['view', '@bash0816/agy-termux', 'version'], { shell: false, encoding: 'utf8', timeout: 15000 });
+    if (view.error || view.status !== 0) {
+      console.error('[agy] registry の確認に失敗しました: ' + (view.error ? view.error.message : 'exit ' + view.status));
+      process.exit(1);
+    }
+    const latest = view.stdout.trim();
+    if (!isNewer(latest, currentVersion)) {
+      console.log('[agy] 最新版です (' + currentVersion + ')');
+      process.exit(0);
+    }
+    process.stderr.write('[agy] ' + currentVersion + ' → ' + latest + ' に更新します...\n');
+    const inst = spawnSync('npm', ['install', '-g', '@bash0816/agy-termux@latest'], { shell: false, stdio: 'inherit', timeout: 60000 });
+    if (inst.error || inst.status !== 0) {
+      console.error('[agy] 更新に失敗しました。前のバージョンに戻すには: npm install -g @bash0816/agy-termux@' + currentVersion);
+      process.exit(1);
+    }
+    console.log('[agy] 更新完了');
+    process.exit(0);
   }
   const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
   const loader = path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
