@@ -46,7 +46,23 @@ function needsPatch() {
   } catch { return true; }
 }
 async function main() {
+  // Legacy cleanup: remove leftover .bin.tmp file from old naming scheme
+  fs.rmSync(path.join(INSTALL_DIR, '.bin.tmp'), { force: true });
+
   const args = process.argv.slice(2);
+
+  // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn は一切行わない。
+  if (['--version', '-v', '-V', 'version'].includes(args[0])) {
+    const pkg = require('../package.json');
+    const verified = require('../config/agy-verified-versions.json');
+    const versionFile = path.join(INSTALL_DIR, '.version');
+    const cached = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return 'not installed'; } })();
+    console.log(`agy-termux wrapper: ${pkg.version}`);
+    console.log(`verified upstream:  ${verified.verified_version}`);
+    console.log(`cached upstream:    ${cached}`);
+    process.exit(0);
+  }
+
   if (['update','--update','upgrade'].includes(args[0])) {
     console.log('[agy] npm update -g @bash0816/agy-termux で更新できます。'); process.exit(0);
   }
@@ -61,10 +77,11 @@ async function main() {
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
   const glibcLib = path.join(prefix, 'glibc', 'lib');
   const isPatch = needsPatch();
-  const tmp = isPatch ? path.join(INSTALL_DIR, 'agy.va39') : path.join(INSTALL_DIR, '.bin.tmp');
+  const tmp = isPatch ? path.join(INSTALL_DIR, 'agy.va39') : path.join(INSTALL_DIR, '.bin');
   const versionFile = path.join(INSTALL_DIR, '.version');
 
   const useLatest = process.env.AGY_TERMUX_FORCE_LATEST === '1';
+  const forceRefresh = process.env.AGY_TERMUX_REFRESH === '1';
   if (useLatest) {
     process.stderr.write('[agy] AGY_TERMUX_FORCE_LATEST: 検証されていない最新版を使用します（自己責任）\n');
   }
@@ -72,7 +89,31 @@ async function main() {
   const { tagName, downloadUrl, sha256Tar, sha256Binary } = useLatest ? await fetchLatestMeta() : await fetchPinnedMeta();
 
   const cachedTag = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return ''; } })();
-  const cacheHit = isPatch && fs.existsSync(tmp) && tagName === cachedTag;
+
+  // キャッシュ済みバイナリの最低限の健全性チェック（サイズ + ELFマジックバイト）。
+  // 壊れている場合は再ダウンロードさせる（cacheHit=false扱い）。
+  function isCachedBinaryValid() {
+    let fd;
+    try {
+      const stat = fs.statSync(tmp);
+      if (stat.size < 10 * 1024 * 1024) return false;
+      fd = fs.openSync(tmp, 'r');
+      const head = Buffer.alloc(4);
+      fs.readSync(fd, head, 0, 4, 0);
+      return head[0] === 0x7F && head.toString('ascii', 1, 4) === 'ELF';
+    } catch {
+      return false;
+    } finally {
+      if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+    }
+  }
+
+  let cacheHit = !forceRefresh && tagName === cachedTag && fs.existsSync(tmp) && isCachedBinaryValid();
+  if (!cacheHit) {
+    // 壊れたキャッシュ・古いキャッシュを確実に一掃してから再取得する
+    fs.rmSync(tmp, { force: true });
+    fs.rmSync(versionFile, { force: true });
+  }
 
   if (!cacheHit) {
     if (isPatch) await gateCompat();
@@ -99,11 +140,12 @@ async function main() {
     }),
   });
   child.on('exit', (code, signal) => {
-    if (!isPatch) fs.rmSync(tmp, { force: true });
     process.exit(signal ? 1 : (code ?? 0));
   });
+  // loader自体の起動に失敗した場合（execがそもそも失敗）はキャッシュを破棄して次回再取得させる
   child.on('error', err => {
-    if (!isPatch) fs.rmSync(tmp, { force: true });
+    fs.rmSync(tmp, { force: true });
+    fs.rmSync(versionFile, { force: true });
     console.error(`[agy] ${err.message}`);
     process.exit(1);
   });
