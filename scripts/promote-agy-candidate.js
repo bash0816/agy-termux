@@ -47,6 +47,14 @@ function main() {
 
     const candidateMeta = JSON.parse(fs.readFileSync(CANDIDATE_CONFIG_PATH, 'utf8'));
 
+    // Check for va39_patch_regression
+    const _regressions = candidateMeta.va39_patch_regression;
+    if (Array.isArray(_regressions) ? _regressions.length > 0 : Boolean(_regressions)) {
+      console.error(`ERROR: va39_patch_regression is non-empty: ${JSON.stringify(_regressions)}`);
+      console.error('Regression must be resolved before promoting.');
+      process.exit(1);
+    }
+
     // Validate candidate state
     if (!candidateMeta.tag_name) {
       console.error('Error: Candidate config missing tag_name');
