@@ -48,8 +48,9 @@ function main() {
     const candidateMeta = JSON.parse(fs.readFileSync(CANDIDATE_CONFIG_PATH, 'utf8'));
 
     // Check for va39_patch_regression
-    if (candidateMeta.va39_patch_regression && candidateMeta.va39_patch_regression !== '') {
-      console.error(`ERROR: va39_patch_regression is non-empty: ${candidateMeta.va39_patch_regression}`);
+    const _regressions = candidateMeta.va39_patch_regression;
+    if (Array.isArray(_regressions) ? _regressions.length > 0 : Boolean(_regressions)) {
+      console.error(`ERROR: va39_patch_regression is non-empty: ${JSON.stringify(_regressions)}`);
       console.error('Regression must be resolved before promoting.');
       process.exit(1);
     }
