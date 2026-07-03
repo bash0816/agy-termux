@@ -84,6 +84,24 @@ For available commands, see the [Antigravity CLI documentation](https://antigrav
 
 利用可能なコマンドは [Antigravity CLI ドキュメント](https://antigravity.google) を参照してください。
 
+## Version and Caching / バージョンとキャッシュ
+
+**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper version, verified upstream version, and cached upstream version without triggering any network access, consent prompts, or binary downloads.
+
+バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーバージョン・検証済み upstream バージョン・キャッシュ済み upstream バージョンを表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
+
+**Caching:** The downloaded binary is persisted locally at `~/.agy-termux/agy.va39` (patch-needed devices) or `~/.agy-termux/.bin` (other devices). Devices that don't need the VA39 patch now benefit from persistent caching — the binary is only re-downloaded if the upstream version changes or becomes corrupted.
+
+キャッシング: ダウンロード済みバイナリは `~/.agy-termux/agy.va39`（パッチが必要なデバイス）または `~/.agy-termux/.bin`（その他のデバイス）にローカル保持されます。VA39 パッチが不要なデバイスも永続的なキャッシュの恩恵を受けるようになりました — バイナリは upstream バージョンの変更や破損時にのみ再ダウンロードされます。
+
+**Force refresh:** Set `AGY_TERMUX_REFRESH=1` to force a clean re-download and re-verification of the binary, even if the cached version matches the upstream tag.
+
+```sh
+AGY_TERMUX_REFRESH=1 agy [command]
+```
+
+強制リフレッシュ: `AGY_TERMUX_REFRESH=1` を設定することで、キャッシュされたバージョンが upstream タグと一致していても、強制的にバイナリの再ダウンロード・再検証を行います。
+
 ## License / ライセンス
 
 This package (`agy-termux`) is licensed under [GPL-3.0-only](./LICENSE).
