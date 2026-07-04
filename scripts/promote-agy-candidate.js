@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { normalizeVersion, getTokyoDate } = require('./lib/version-utils');
+const { normalizeVersion } = require('./lib/version-utils');
 
 const CANDIDATE_CONFIG_PATH = './config/agy-candidate-version.json';
 const VERIFIED_CONFIG_PATH = './config/agy-verified-versions.json';

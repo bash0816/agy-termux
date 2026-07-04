@@ -86,9 +86,14 @@ For available commands, see the [Antigravity CLI documentation](https://antigrav
 
 ## Version and Caching / バージョンとキャッシュ
 
-**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper version, verified upstream version, and cached upstream version without triggering any network access, consent prompts, or binary downloads.
+**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper version and cached upstream version without triggering any network access, consent prompts, or binary downloads.
 
-バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーバージョン・検証済み upstream バージョン・キャッシュ済み upstream バージョンを表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
+```
+agy-termux: 1.0.16
+cached:     1.0.16
+```
+
+バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーバージョンとキャッシュ済み upstream バージョンを表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
 
 **Caching:** The downloaded binary is persisted locally at `~/.agy-termux/agy.va39` (patch-needed devices) or `~/.agy-termux/.bin` (other devices). Devices that don't need the VA39 patch now benefit from persistent caching — the binary is only re-downloaded if the upstream version changes or becomes corrupted.
 
@@ -138,7 +143,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Tested with agy 1.0.16 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin対応）で実機TUI検証済み
+- Tested with agy 1.0.16 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin対応）でのSHA256検証・VA39パッチ互換性確認済み
 
 ## Known limitations / 既知の制限
 
