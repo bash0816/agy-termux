@@ -1,10 +1,16 @@
-## 1.0.14 — 2026-07-01 ✅ Current \/ 現行版
+## 1.0.16 — 2026-07-04 ✅ Current / 現行版
 
-upstream google-antigravity/antigravity-cli 1.0.14 追従。faccessat2 syscall による SIGSYS クラッシュを LD_PRELOAD shim で修正し、バージョンpin化により今後の破壊的変更の即時波及を防止。
+upstream google-antigravity/antigravity-cli 1.0.16 追従。シングルバージョン方式に移行（verified_version を廃止し tag_name を唯一の版識別子に統一）。
 
 ```sh
 npm install -g @bash0816/agy-termux
 ```
+
+---
+
+## 1.0.14 — 2026-07-01
+
+upstream google-antigravity/antigravity-cli 1.0.14 追従。faccessat2 syscall による SIGSYS クラッシュを LD_PRELOAD shim で修正し、バージョンpin化により今後の破壊的変更の即時波及を防止。
 
 ---
 

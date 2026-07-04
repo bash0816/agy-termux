@@ -161,9 +161,9 @@ If a critical issue is discovered after promoting a new version to `latest`, you
 新バージョン昇格後に重大な問題が発見された場合、以下のコマンドで前バージョンにロールバックできます:
 
 ```sh
-npm dist-tag add @bash0816/agy-termux@1.0.12 latest
+npm dist-tag add @bash0816/agy-termux@1.0.14 latest
 ```
 
-This reverts the `latest` tag to version 1.0.12 and will restore the previous stable release for all new installations and updates.
+This reverts the `latest` tag to version 1.0.14 and will restore the previous stable release for all new installations and updates.
 
-これにより `latest` タグを 1.0.12 に戻し、新規インストール・更新時に前のステーブル版を配布します。
+これにより `latest` タグを 1.0.14 に戻し、新規インストール・更新時に前のステーブル版を配布します。
