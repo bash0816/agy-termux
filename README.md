@@ -68,10 +68,10 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-This package downloads a specific verified version of the `agy` binary (currently 1.0.14) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
+This package downloads a specific verified version of the `agy` binary (currently 1.0.16) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 
-このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.14）をダウンロードします。SIGSYS対応の互換性が保証されます。
+このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.16）をダウンロードします。SIGSYS対応の互換性が保証されます。
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 
 ## Usage / 使い方
@@ -138,7 +138,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Tested with agy 1.0.14 (SIGSYS shim + version pin) on Android 12+ / Android 12+ 上の agy 1.0.14（SIGSYS shim + バージョンpin対応）で実機TUI検証済み
+- Device A smoke test + TUI/auth verified with agy 1.0.16 on Android 12+ — Device B verification pending / Android 12+ 上の agy 1.0.16 で Device A スモーク+TUI/auth 検証済み — Device B 検証待ち
 
 ## Known limitations / 既知の制限
 
@@ -156,9 +156,9 @@ If a critical issue is discovered after promoting a new version to `latest`, you
 新バージョン昇格後に重大な問題が発見された場合、以下のコマンドで前バージョンにロールバックできます:
 
 ```sh
-npm dist-tag add @bash0816/agy-termux@1.0.12 latest
+npm dist-tag add @bash0816/agy-termux@1.0.14 latest
 ```
 
-This reverts the `latest` tag to version 1.0.12 and will restore the previous stable release for all new installations and updates.
+This reverts the `latest` tag to version 1.0.14 and will restore the previous stable release for all new installations and updates.
 
-これにより `latest` タグを 1.0.12 に戻し、新規インストール・更新時に前のステーブル版を配布します。
+これにより `latest` タグを 1.0.14 に戻し、新規インストール・更新時に前のステーブル版を配布します。
