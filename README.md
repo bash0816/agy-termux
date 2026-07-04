@@ -7,14 +7,14 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
-## ✅ v1.0.14 Released — Update Recommended / v1.0.14 リリース済み — 更新を推奨します
+## ✅ v1.0.16 Released — Update Recommended / v1.0.16 リリース済み — 更新を推奨します
 
-v1.0.12 itself is not broken. The crash (SIGSYS from a `faccessat2` syscall on Android) happens when the **official upstream `agy` binary** is updated to a version that uses this syscall (introduced upstream around 2026-06-30) — and v1.0.12 always fetched the latest official binary dynamically with no version pinning, so existing v1.0.12 installs could pick up the broken binary without any npm package update. v1.0.14 fixes this by pinning to a verified compatible binary version and adding a syscall shim workaround. Update is recommended for safety:
+v1.0.16 adds `agy update` command, `--version` fast path (no download required), and fixes cache persistence for non-patched devices. SIGSYS shim and version pinning continue from v1.0.14. Update recommended:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
 
-v1.0.12 そのものが壊れているわけではありません。クラッシュ(Android での `faccessat2` syscall による SIGSYS)は、**公式の `agy` バイナリ本体**がこの syscall を使うバージョン(2026-06-30頃に upstream で導入)に更新された際に発生します。v1.0.12 はバージョン固定なしで常に公式の最新バイナリを動的取得していたため、npmパッケージ自体を更新していなくても、既存の v1.0.12 環境が壊れたバイナリを掴んでしまうことがありました。v1.0.14 では検証済みバイナリバージョンへの固定と syscall shim による回避策で修正済みです。安全のため更新を推奨します:
+v1.0.16 では `agy update` コマンド、`--version` 高速パス（ダウンロード不要）、パッチ不要端末のキャッシュ永続化修正を追加しました。SIGSYS shim とバージョンpin は v1.0.14 から継続しています。更新を推奨します:
 ```sh
 npm update -g @bash0816/agy-termux
 ```
@@ -138,7 +138,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Device A smoke test + TUI/auth verified with agy 1.0.16 on Android 12+ — Device B verification pending / Android 12+ 上の agy 1.0.16 で Device A スモーク+TUI/auth 検証済み — Device B 検証待ち
+- Tested with agy 1.0.16 on Android 12+ (SIGSYS shim + version pin) / Android 12+ 上の agy 1.0.16（SIGSYS shim + バージョンpin）で実機検証済み
 
 ## Known limitations / 既知の制限
 
