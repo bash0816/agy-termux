@@ -16,5 +16,5 @@
   "asset_updated_at": "2026-07-02T18:33:04Z",
   "source_repo": "google-antigravity/antigravity-cli",
   "verified_date": "2026-07-04",
-  "notes": "Device A smoke test + TUI/auth verified 2026-07-04. Device B TUI/auth verification pending. Candidate publish for Device B @candidate install test — not yet promoted to latest."
+  "notes": "Device A smoke test + TUI/auth verified 2026-07-04. Promoted to latest and published as GitHub Release v1.0.16 on 2026-07-04."
 }
