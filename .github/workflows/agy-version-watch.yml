@@ -45,7 +45,7 @@ jobs:
         id: verified
         run: |
           set -eu
-          verified=$(node -p "require('./config/agy-verified-versions.json').verified_version")
+          verified=$(node -p "require('./config/agy-verified-versions.json').tag_name")
           echo "version=$verified" >> "$GITHUB_OUTPUT"
           echo "Current verified version: $verified"
 
@@ -67,7 +67,7 @@ jobs:
         run: |
           set -eu
           # Strip a possible 'v' prefix before comparing, since
-          # config/agy-verified-versions.json.verified_version and
+          # config/agy-verified-versions.json.tag_name and
           # candidateMeta.tag_name (written by prepare-agy-candidate.js via
           # normalizeVersion()) are always stored without it. Without this,
           # an upstream tag like "v1.0.16" would never match an already
