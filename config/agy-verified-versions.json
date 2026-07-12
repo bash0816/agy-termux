@@ -16,5 +16,6 @@
   "asset_updated_at": "2026-07-08T02:18:23Z",
   "source_repo": "google-antigravity/antigravity-cli",
   "verified_date": "2026-07-08",
+  "release_state": "stable",
   "notes": "Promoted via promote-agy-candidate.js --confirm-device-verified on 2026-07-08. VA39 patch-count static check passed with no regression from the prior verified version. Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified."
 }
