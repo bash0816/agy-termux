@@ -60,7 +60,7 @@ async function main() {
     const rawReleaseState = verified.release_state;
     const releaseState = rawReleaseState === undefined ? 'stable' : rawReleaseState;
     const wrapper = pkg.version;
-    const verifiedVer = verified.verified_version;
+    const verifiedVer = verified.tag_name;
 
     if (releaseState === 'local_test') {
       // local_testでも主表示は常に実際のnpmパッケージ版(wrapper)。verified upstreamは別行。
