@@ -46,22 +46,47 @@ function needsPatch() {
   } catch { return true; }
 }
 async function main() {
-  // Legacy cleanup: remove leftover .bin.tmp file from old naming scheme
-  fs.rmSync(path.join(INSTALL_DIR, '.bin.tmp'), { force: true });
-
   const args = process.argv.slice(2);
 
-  // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn は一切行わない。
+  // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn・
+  // ファイルシステムへの書き込みは一切行わない（副作用ゼロを維持するため、legacy cleanupより前に早期return する）。
   if (['--version', '-v', '-V', 'version'].includes(args[0])) {
     const pkg = require('../package.json');
     const verified = require('../config/agy-verified-versions.json');
     const versionFile = path.join(INSTALL_DIR, '.version');
     const cached = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return 'not installed'; } })();
-    console.log(`agy-termux wrapper: ${pkg.version}`);
-    console.log(`verified upstream:  ${verified.verified_version}`);
-    console.log(`cached upstream:    ${cached}`);
+    // undefined（フィールド追加前の既存verified-versions.json）のみ'stable'扱い。
+    // 'stable'/'local_test'以外の値（設定ミス等）は明示的に不正値として警告する。
+    const rawReleaseState = verified.release_state;
+    const releaseState = rawReleaseState === undefined ? 'stable' : rawReleaseState;
+    const wrapper = pkg.version;
+    const verifiedVer = verified.verified_version;
+
+    if (releaseState === 'local_test') {
+      // local_testでも主表示は常に実際のnpmパッケージ版(wrapper)。verified upstreamは別行。
+      console.log(`agy-termux wrapper: ${wrapper} (local test)`);
+      console.log(`verified upstream:  ${verifiedVer}`);
+      console.log(`WARNING: local test build — npm publish 前のテストビルドです (verified_date: ${verified.verified_date})`);
+    } else if (releaseState === 'stable') {
+      if (wrapper === verifiedVer) {
+        console.log(`agy-termux ${wrapper} (verified upstream ${verifiedVer})`);
+      } else {
+        console.log(`agy-termux wrapper: ${wrapper}`);
+        console.log(`verified upstream:  ${verifiedVer}`);
+      }
+    } else {
+      console.log(`agy-termux wrapper: ${wrapper}`);
+      console.log(`verified upstream:  ${verifiedVer}`);
+      console.log(`WARNING: unknown release_state '${releaseState}' in config — treating as unverified`);
+    }
+    if (cached !== verifiedVer) {
+      console.log(`cached upstream:    ${cached}`);
+    }
     process.exit(0);
   }
+
+  // Legacy cleanup: remove leftover .bin.tmp file from old naming scheme
+  fs.rmSync(path.join(INSTALL_DIR, '.bin.tmp'), { force: true });
 
   if (['update','--update','upgrade'].includes(args[0])) {
     const { spawnSync } = require('child_process');
