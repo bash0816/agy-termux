@@ -59,6 +59,7 @@ jobs:
           node --check scripts/prepare-agy-candidate.js
           node --check scripts/update-agy-candidate-config.js
           node --check scripts/promote-agy-candidate.js
+          node --check scripts/prepare-local-test-build.js
 
       - name: Publish preflight check
         run: |
@@ -83,6 +84,12 @@ jobs:
             throw new Error('Missing or empty sha256_binary in verified config');
           }
           console.log(`✓ SHA256 checksums present (tar: ${verified.sha256_tar.substring(0, 8)}..., bin: ${verified.sha256_binary.substring(0, 8)}...)`);
+
+          // Refuse to publish local test builds (release_state must be 'stable')
+          if (verified.release_state !== 'stable') {
+            throw new Error(`Refusing to publish: verified config release_state is '${verified.release_state}', expected 'stable'`);
+          }
+          console.log('✓ release_state is stable');
 
           NODE
 
@@ -111,9 +118,13 @@ jobs:
           node - <<'NODE'
           const { execSync } = require('child_process');
           const pkg = require('./package.json');
+          const verified = require('./config/agy-verified-versions.json');
 
           if (pkg.name !== '@bash0816/agy-termux') throw new Error('unexpected package name');
           if (!pkg.version) throw new Error('missing version in package.json');
+          if (verified.release_state !== 'stable') {
+            throw new Error(`Refusing to publish: release_state is '${verified.release_state}', expected 'stable'`);
+          }
 
           const packInfo = JSON.parse(execSync('npm pack --dry-run --json', { encoding: 'utf8' }));
           const pack = Array.isArray(packInfo) ? packInfo[0] : packInfo;

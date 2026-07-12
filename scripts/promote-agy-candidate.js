@@ -84,6 +84,7 @@ function main() {
       asset_updated_at: candidateMeta.asset_updated_at,
       source_repo: candidateMeta.source_repo,
       verified_date: getTokyoDate(),
+      release_state: 'stable',
       notes: `Promoted via promote-agy-candidate.js --confirm-device-verified on ${getTokyoDate()}. VA39 patch-count static check passed with no regression from the prior verified version. Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified.`,
     };
 
@@ -105,10 +106,11 @@ function main() {
     console.log(`✓ Updated ${VERIFIED_CONFIG_PATH}`);
     console.log(`✓ Updated ${PACKAGE_JSON_PATH} version to ${version}`);
     console.log('');
-    console.log('⚠️  IMPORTANT: Before proceeding with npm publish:');
+    console.log('⚠️  IMPORTANT: Before publishing:');
     console.log('   1. Review and manually update README.md Compatibility section if needed');
-    console.log('   2. Commit these changes');
-    console.log('   3. Then run: npm publish');
+    console.log('   2. Commit these changes on a branch and open a PR to main (this repo merges via PR, not direct push)');
+    console.log('   3. After the PR is merged, dispatch the "npm Publish" GitHub Actions workflow (action: publish-candidate)');
+    console.log('      and approve the npm-publish Environment gate. Do NOT run `npm publish` locally.');
   } catch (e) {
     console.error(`Error: ${e.message}`);
     process.exit(1);
