@@ -67,12 +67,12 @@ jobs:
           node - <<'NODE'
           const fs = require('fs');
 
-          // Check that package.json version matches verified_version
+          // Check that package.json version matches tag_name
           const pkg = require('./package.json');
           const verified = require('./config/agy-verified-versions.json');
 
-          if (pkg.version !== verified.verified_version) {
-            throw new Error(`Version mismatch: package.json (${pkg.version}) != verified_version (${verified.verified_version})`);
+          if (pkg.version !== verified.tag_name) {
+            throw new Error(`Version mismatch: package.json (${pkg.version}) != tag_name (${verified.tag_name})`);
           }
           console.log(`✓ Version match: ${pkg.version}`);
 

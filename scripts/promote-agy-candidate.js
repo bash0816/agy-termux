@@ -73,7 +73,6 @@ function main() {
 
     // Prepare verified config
     const verifiedMeta = {
-      verified_version: candidateMeta.tag_name,
       tag_name: candidateMeta.tag_name,
       download_url: candidateMeta.download_url,
       sha256_tar: candidateMeta.sha256_tar,
