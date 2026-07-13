@@ -7,6 +7,7 @@ on:
       - 'lib/**'
       - 'config/**'
       - '!config/agy-candidate-version.json'
+      - 'scripts/**'
       - 'package.json'
       - 'README.md'
       - 'NOTICE.md'
@@ -19,6 +20,7 @@ on:
       - 'lib/**'
       - 'config/**'
       - '!config/agy-candidate-version.json'
+      - 'scripts/**'
       - 'package.json'
       - 'README.md'
       - 'NOTICE.md'
@@ -60,6 +62,7 @@ jobs:
           node --check scripts/update-agy-candidate-config.js
           node --check scripts/promote-agy-candidate.js
           node --check scripts/prepare-local-test-build.js
+          node --check scripts/verify-version-sync.js
 
       - name: Publish preflight check
         run: |

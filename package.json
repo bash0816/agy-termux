@@ -5,6 +5,9 @@
   "bin": {
     "agy": "./bin/agy.js"
   },
+  "scripts": {
+    "prepack": "node scripts/verify-version-sync.js"
+  },
   "license": "GPL-3.0-only",
   "engines": {
     "node": ">=18"
