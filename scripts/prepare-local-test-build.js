@@ -60,7 +60,25 @@ function main() {
   };
 
   fs.writeFileSync(VERIFIED_CONFIG_PATH, JSON.stringify(verifiedMeta, null, 2) + '\n');
+
+  // package.json の version も candidate と同じ値に同時更新する(local-testビルドでも
+  // package.json.version と config.tag_name の一致を保証するため)
+  const PACKAGE_JSON_PATH = './package.json';
+  const packageJson = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf8'));
+  packageJson.version = version;
+  fs.writeFileSync(PACKAGE_JSON_PATH, JSON.stringify(packageJson, null, 2) + '\n');
+
+  // read-back検証: 書き込んだ内容を再読込し、一致を確認する
+  const verifyPkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf8'));
+  const verifyConfig = JSON.parse(fs.readFileSync(VERIFIED_CONFIG_PATH, 'utf8'));
+  if (verifyPkg.version !== verifyConfig.tag_name) {
+    console.error(`Error: post-write verification failed. package.json.version(${verifyPkg.version}) !== config.tag_name(${verifyConfig.tag_name})`);
+    process.exit(1);
+  }
+
   console.log(`✓ Wrote local_test verified config for ${version}`);
+  console.log(`✓ Updated package.json version to ${version}`);
+  console.log('✓ Read-back verification passed');
   console.log('⚠️  This config must NEVER be committed or published. Use only on a scratch copy for npm pack.');
 }
 

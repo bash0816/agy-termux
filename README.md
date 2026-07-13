@@ -7,18 +7,6 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
-## ✅ v1.0.16 Released — Update Recommended / v1.0.16 リリース済み — 更新を推奨します
-
-v1.0.16 adds `agy update` command, `--version` fast path (no download required), and fixes cache persistence for non-patched devices. SIGSYS shim and version pinning continue from v1.0.14. Update recommended:
-```sh
-npm update -g @bash0816/agy-termux
-```
-
-v1.0.16 では `agy update` コマンド、`--version` 高速パス（ダウンロード不要）、パッチ不要端末のキャッシュ永続化修正を追加しました。SIGSYS shim とバージョンpin は v1.0.14 から継続しています。更新を推奨します:
-```sh
-npm update -g @bash0816/agy-termux
-```
-
 ## What this does / 仕組み
 
 This package downloads the official `agy` binary from Google's public release source
@@ -68,11 +56,17 @@ Both steps are skipped on subsequent runs if the version has not changed.
 npm update -g @bash0816/agy-termux
 ```
 
-This package downloads a specific verified version of the `agy` binary (currently 1.0.16) pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
+This package downloads a specific verified version of the `agy` binary pinned in `config/agy-verified-versions.json`, ensuring compatibility with the SIGSYS workaround.
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
+Note: When `AGY_TERMUX_FORCE_LATEST=1` is set, the output of `--version` does not reflect the actual upstream version being used — it always displays the wrapper package version as configured in `package.json`.
 
-このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョン（現在 1.0.16）をダウンロードします。SIGSYS対応の互換性が保証されます。
+`agy update` compares the installed wrapper package version against the npm registry's `latest` tag and reinstalls only if a newer version is available. It does not distinguish published builds from local test builds. If you are running a local test build and want to force-reinstall the published `latest` version regardless of version numbers, run `npm install -g @bash0816/agy-termux@latest` manually.
+
+このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョンをダウンロードします。SIGSYS対応の互換性が保証されます。
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
+注記: `AGY_TERMUX_FORCE_LATEST=1` が設定されている場合、`--version` の表示は実際に取得される upstream バージョンを反映しません — 常に `package.json` で定義されたラッパーパッケージバージョンを表示します。
+
+`agy update` は、インストール済みのラッパーパッケージバージョンと npm registry の `latest` タグを比較し、新しいバージョンがある場合のみ再インストールします。公開版・ローカルテストビルドの区別はしません。ローカルテストビルドを使用中で、バージョン番号によらず公開済みの `latest` へ強制的に戻したい場合は、`npm install -g @bash0816/agy-termux@latest` を手動で実行してください。
 
 ## Usage / 使い方
 
@@ -86,9 +80,9 @@ For available commands, see the [Antigravity CLI documentation](https://antigrav
 
 ## Version and Caching / バージョンとキャッシュ
 
-**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper version, verified upstream version, and cached upstream version without triggering any network access, consent prompts, or binary downloads.
+**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper package version in a single line without triggering any network access, consent prompts, or binary downloads.
 
-バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーバージョン・検証済み upstream バージョン・キャッシュ済み upstream バージョンを表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
+バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーパッケージバージョンを1行で表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
 
 **Caching:** The downloaded binary is persisted locally at `~/.agy-termux/agy.va39` (patch-needed devices) or `~/.agy-termux/.bin` (other devices). Devices that don't need the VA39 patch now benefit from persistent caching — the binary is only re-downloaded if the upstream version changes or becomes corrupted.
 
@@ -156,9 +150,9 @@ If a critical issue is discovered after promoting a new version to `latest`, you
 新バージョン昇格後に重大な問題が発見された場合、以下のコマンドで前バージョンにロールバックできます:
 
 ```sh
-npm dist-tag add @bash0816/agy-termux@1.0.14 latest
+npm dist-tag add @bash0816/agy-termux@<previous known-good version> latest
 ```
 
-This reverts the `latest` tag to version 1.0.14 and will restore the previous stable release for all new installations and updates.
+This reverts the `latest` tag to a previous known-good version and will restore the previous stable release for all new installations and updates.
 
-これにより `latest` タグを 1.0.14 に戻し、新規インストール・更新時に前のステーブル版を配布します。
+これにより `latest` タグを前のステーブル版に戻し、新規インストール・更新時に前のステーブル版を配布します。
