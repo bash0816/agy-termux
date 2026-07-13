@@ -62,30 +62,24 @@ async function main() {
   if (['update','--update','upgrade'].includes(args[0])) {
     const { spawnSync } = require('child_process');
     const pkg = require('../package.json');
-    const verified = require('../config/agy-verified-versions.json');
     const currentVersion = pkg.version;
 
-    const rawReleaseState = verified.release_state;
-    const releaseState = rawReleaseState === undefined ? 'stable' : rawReleaseState;
-
-    if (releaseState !== 'stable') {
-      process.stderr.write('[agy] ローカルテストビルドを検出しました。npm公開版(latest)に更新します...\n');
-      const inst = spawnSync('npm', ['install', '-g', '@bash0816/agy-termux@latest'], { shell: false, stdio: 'inherit', timeout: 60000 });
-      if (inst.error || inst.status !== 0) {
-        console.error('[agy] 更新に失敗しました。手動で復旧するには: npm install -g @bash0816/agy-termux@latest');
+    function isNewer(a, b) {
+      const numericVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+      if (!numericVersion.test(a) || !numericVersion.test(b)) {
+        console.error(`[agy] バージョン形式を比較できません: '${a}' vs '${b}'。手動で確認してください。`);
         process.exit(1);
       }
-      console.log('[agy] 更新完了');
-      process.exit(0);
-    }
-
-    function isNewer(a, b) {
       const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+      if (!pa.every(Number.isSafeInteger) || !pb.every(Number.isSafeInteger)) {
+        console.error(`[agy] バージョン形式を比較できません: '${a}' vs '${b}'。手動で確認してください。`);
+        process.exit(1);
+      }
       for (let i = 0; i < 3; i++) { if (pa[i] > pb[i]) return true; if (pa[i] < pb[i]) return false; }
       return false;
     }
     process.stderr.write('[agy] npm registry を確認中...\n');
-    const view = spawnSync('npm', ['view', '@bash0816/agy-termux', 'version'], { shell: false, encoding: 'utf8', timeout: 15000 });
+    const view = spawnSync('npm', ['view', '@bash0816/agy-termux@latest', 'version'], { shell: false, encoding: 'utf8', timeout: 15000 });
     if (view.error || view.status !== 0) {
       console.error('[agy] registry の確認に失敗しました: ' + (view.error ? view.error.message : 'exit ' + view.status));
       process.exit(1);

@@ -60,9 +60,13 @@ This package downloads a specific verified version of the `agy` binary pinned in
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 Note: When `AGY_TERMUX_FORCE_LATEST=1` is set, the output of `--version` does not reflect the actual upstream version being used — it always displays the wrapper package version as configured in `package.json`.
 
+`agy update` compares the installed wrapper package version against the npm registry's `latest` tag and reinstalls only if a newer version is available. It does not distinguish published builds from local test builds. If you are running a local test build and want to force-reinstall the published `latest` version regardless of version numbers, run `npm install -g @bash0816/agy-termux@latest` manually.
+
 このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョンをダウンロードします。SIGSYS対応の互換性が保証されます。
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 注記: `AGY_TERMUX_FORCE_LATEST=1` が設定されている場合、`--version` の表示は実際に取得される upstream バージョンを反映しません — 常に `package.json` で定義されたラッパーパッケージバージョンを表示します。
+
+`agy update` は、インストール済みのラッパーパッケージバージョンと npm registry の `latest` タグを比較し、新しいバージョンがある場合のみ再インストールします。公開版・ローカルテストビルドの区別はしません。ローカルテストビルドを使用中で、バージョン番号によらず公開済みの `latest` へ強制的に戻したい場合は、`npm install -g @bash0816/agy-termux@latest` を手動で実行してください。
 
 ## Usage / 使い方
 
