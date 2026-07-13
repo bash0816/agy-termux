@@ -52,36 +52,7 @@ async function main() {
   // ファイルシステムへの書き込みは一切行わない（副作用ゼロを維持するため、legacy cleanupより前に早期return する）。
   if (['--version', '-v', '-V', 'version'].includes(args[0])) {
     const pkg = require('../package.json');
-    const verified = require('../config/agy-verified-versions.json');
-    const versionFile = path.join(INSTALL_DIR, '.version');
-    const cached = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return 'not installed'; } })();
-    // undefined（フィールド追加前の既存verified-versions.json）のみ'stable'扱い。
-    // 'stable'/'local_test'以外の値（設定ミス等）は明示的に不正値として警告する。
-    const rawReleaseState = verified.release_state;
-    const releaseState = rawReleaseState === undefined ? 'stable' : rawReleaseState;
-    const wrapper = pkg.version;
-    const verifiedVer = verified.tag_name;
-
-    if (releaseState === 'local_test') {
-      // local_testでも主表示は常に実際のnpmパッケージ版(wrapper)。verified upstreamは別行。
-      console.log(`agy-termux wrapper: ${wrapper} (local test)`);
-      console.log(`verified upstream:  ${verifiedVer}`);
-      console.log(`WARNING: local test build — npm publish 前のテストビルドです (verified_date: ${verified.verified_date})`);
-    } else if (releaseState === 'stable') {
-      if (wrapper === verifiedVer) {
-        console.log(`agy-termux ${wrapper} (verified upstream ${verifiedVer})`);
-      } else {
-        console.log(`agy-termux wrapper: ${wrapper}`);
-        console.log(`verified upstream:  ${verifiedVer}`);
-      }
-    } else {
-      console.log(`agy-termux wrapper: ${wrapper}`);
-      console.log(`verified upstream:  ${verifiedVer}`);
-      console.log(`WARNING: unknown release_state '${releaseState}' in config — treating as unverified`);
-    }
-    if (cached !== verifiedVer) {
-      console.log(`cached upstream:    ${cached}`);
-    }
+    console.log(`agy-termux ${pkg.version}`);
     process.exit(0);
   }
 
@@ -92,13 +63,23 @@ async function main() {
     const { spawnSync } = require('child_process');
     const pkg = require('../package.json');
     const currentVersion = pkg.version;
+
     function isNewer(a, b) {
+      const numericVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+      if (!numericVersion.test(a) || !numericVersion.test(b)) {
+        console.error(`[agy] バージョン形式を比較できません: '${a}' vs '${b}'。手動で確認してください。`);
+        process.exit(1);
+      }
       const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+      if (!pa.every(Number.isSafeInteger) || !pb.every(Number.isSafeInteger)) {
+        console.error(`[agy] バージョン形式を比較できません: '${a}' vs '${b}'。手動で確認してください。`);
+        process.exit(1);
+      }
       for (let i = 0; i < 3; i++) { if (pa[i] > pb[i]) return true; if (pa[i] < pb[i]) return false; }
       return false;
     }
     process.stderr.write('[agy] npm registry を確認中...\n');
-    const view = spawnSync('npm', ['view', '@bash0816/agy-termux', 'version'], { shell: false, encoding: 'utf8', timeout: 15000 });
+    const view = spawnSync('npm', ['view', '@bash0816/agy-termux@latest', 'version'], { shell: false, encoding: 'utf8', timeout: 15000 });
     if (view.error || view.status !== 0) {
       console.error('[agy] registry の確認に失敗しました: ' + (view.error ? view.error.message : 'exit ' + view.status));
       process.exit(1);
