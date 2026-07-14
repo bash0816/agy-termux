@@ -36,7 +36,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`✓ version sync verified: ${pkgVersion}`);
+  console.error(`✓ version sync verified: ${pkgVersion}`);
   process.exit(0);
 }
 
