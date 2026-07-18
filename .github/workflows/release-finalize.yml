@@ -24,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ secrets.RELEASE_ADMIN_PAT }}
 
       - uses: actions/setup-node@v4
@@ -64,7 +65,7 @@ jobs:
           sed -i 's/ ✅ Current \\\/ 現行版/ ✅/g' RELEASES.md
           sed -i 's/ ✅ Current \/ 現行版/ ✅/g' RELEASES.md
 
-          if grep -qF "## ${VER}" RELEASES.md; then
+          if grep -qF "## ${VER} — " RELEASES.md; then
             # Entry exists — just re-add the Current marker
             sed -i "s/## ${VER} — \(.*\) ✅/## ${VER} — \1 ✅ Current \/ 現行版/" RELEASES.md
             echo "Updated current marker for existing ${VER} entry"
