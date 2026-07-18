@@ -1,4 +1,4 @@
-## 1.1.3 — 2026-07-17 ✅ Current \/ 現行版
+## 1.1.3 — 2026-07-17 ✅ Current / 現行版
 
 Google Antigravity CLI (agy) v1.1.3 対応。Termux 実機検証済み。
 agy v1.1.3 support. Verified on Termux (Android ARM64).
@@ -9,7 +9,7 @@ npm install -g @bash0816/agy-termux
 
 ---
 
-## 1.1.2 — 2026-07-15 ✅ Current \/ 現行版
+## 1.1.2 — 2026-07-15 ✅
 
 Google Antigravity CLI (agy) v1.1.2 対応。Termux 実機検証済み。
 agy v1.1.2 support. Verified on Termux (Android ARM64).
@@ -20,7 +20,7 @@ npm install -g @bash0816/agy-termux
 
 ---
 
-## 1.1.1 — 2026-07-14 ✅ Current \/ 現行版
+## 1.1.1 — 2026-07-14 ✅
 
 Google Antigravity CLI (agy) v1.1.1 対応。Termux 実機検証済み。
 agy v1.1.1 support. Verified on Termux (Android ARM64).
@@ -34,7 +34,7 @@ npm install -g @bash0816/agy-termux
 
 ---
 
-## 1.1.0 — 2026-07-09 ✅ Current \/ 現行版
+## 1.1.0 — 2026-07-09 ✅
 
 Google Antigravity CLI (agy) v1.1.0 対応。Termux 実機検証済み。
 agy v1.1.0 support. Verified on Termux (Android ARM64).
@@ -45,7 +45,7 @@ npm install -g @bash0816/agy-termux
 
 ---
 
-## 1.0.16 — 2026-07-04 ✅ Current \/ 現行版
+## 1.0.16 — 2026-07-04 ✅
 
 Google Antigravity CLI (agy) v1.0.16 対応。Termux 実機検証済み。
 agy v1.0.16 support. Verified on Termux (Android ARM64).
@@ -56,7 +56,7 @@ npm install -g @bash0816/agy-termux
 
 ---
 
-## 1.0.14 — 2026-07-01 ✅ Current \/ 現行版
+## 1.0.14 — 2026-07-01 ✅
 
 upstream google-antigravity/antigravity-cli 1.0.14 追従。faccessat2 syscall による SIGSYS クラッシュを LD_PRELOAD shim で修正し、バージョンpin化により今後の破壊的変更の即時波及を防止。
 
