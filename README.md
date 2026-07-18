@@ -132,7 +132,7 @@ we will promptly review it and may remove or disable the affected functionality.
 
 - **Platform / プラットフォーム**: Android (Termux)
 - **Architecture / アーキテクチャ**: ARM64 (aarch64)
-- Tested with agy 1.1.1 on Android 12+ (SIGSYS shim + version pin) / Android 12+ 上の agy 1.1.1（SIGSYS shim + バージョンpin）で実機検証済み
+- Tested with agy 1.1.4 on Android 12+ (SIGSYS shim + version pin) / Android 12+ 上の agy 1.1.4（SIGSYS shim + バージョンpin）で実機検証済み
 
 ## Known limitations / 既知の制限
 
