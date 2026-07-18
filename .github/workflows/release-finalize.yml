@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_ADMIN_PAT }}
 
       - uses: actions/setup-node@v4
         with:
@@ -41,6 +41,15 @@ jobs:
           fi
           echo "Confirmed: @bash0816/agy-termux@${VER} is published"
 
+      - name: Verify version format
+        run: |
+          set -euo pipefail
+          VER="$RELEASE_VERSION"
+          echo "$VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "ERROR: version must be X.Y.Z format (create-github-release.yml only accepts this format): $VER" >&2
+            exit 1
+          }
+
       - name: Update RELEASES.md current marker
         run: |
           set -euo pipefail
@@ -51,7 +60,8 @@ jobs:
             NOTES="Google Antigravity CLI (agy) v${VER} 対応。Termux 実機検証済み。\nagy v${VER} support. Verified on Termux (Android ARM64)."
           fi
 
-          # Remove "Current / 現行版" marker from all entries
+          # Remove "Current / 現行版" marker from all entries (both legacy \/ and plain / forms)
+          sed -i 's/ ✅ Current \\\/ 現行版/ ✅/g' RELEASES.md
           sed -i 's/ ✅ Current \/ 現行版/ ✅/g' RELEASES.md
 
           if grep -qF "## ${VER}" RELEASES.md; then
@@ -67,44 +77,24 @@ jobs:
           fi
 
       - name: Commit updated RELEASES.md
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ADMIN_PAT }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add RELEASES.md
-          git diff --cached --quiet && echo "No changes to commit" || \
-            { git commit -m "docs: mark v${RELEASE_VERSION} as current release" && git push; }
-
-      - name: Create or update GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          VER="$RELEASE_VERSION"
-          TAG="v${VER}"
-
-          NOTES=$(node -e "
-            const fs = require('fs');
-            const md = fs.readFileSync('RELEASES.md', 'utf8');
-            const lines = md.split('\n');
-            let capture = false;
-            const out = [];
-            for (const line of lines) {
-              if (line.startsWith('## \${VER}')) { capture = true; continue; }
-              if (capture && line.startsWith('## ')) break;
-              if (capture) out.push(line);
-            }
-            process.stdout.write(out.join('\n').trim());
-          " VER="$VER")
-
-          git tag "$TAG" 2>/dev/null || true
-          git push origin "$TAG" 2>/dev/null || true
-
-          gh release create "$TAG" \
-            --title "@bash0816/agy-termux $TAG" \
-            --notes "$NOTES" \
-            --latest 2>/dev/null || \
-          gh release edit "$TAG" \
-            --title "@bash0816/agy-termux $TAG" \
-            --notes "$NOTES" \
-            --latest
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          BRANCH="automation/docs-${RELEASE_VERSION}"
+          git checkout -b "$BRANCH"
+          git commit -m "docs: mark v${RELEASE_VERSION} as current release"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "docs: update RELEASES.md for v${RELEASE_VERSION}" \
+            --body "Automated RELEASES.md update for v${RELEASE_VERSION}." \
+            --base main \
+            --head "$BRANCH"
+          gh pr merge "$BRANCH" --squash
