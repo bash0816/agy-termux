@@ -38,6 +38,25 @@ async function gateCompat() {
   if (_ans2 === 'n' || _ans2 === 'no') { console.error('キャンセルしました。'); process.exit(0); }
   saveConsent('compat');
 }
+// bin/agy.js は "<prefix>/lib/node_modules/@bash0816/agy-termux/bin/agy.js" に配置される
+// (npmのグローバルインストールの標準レイアウト)。ここから4階層上がprefixになる。
+// 純粋な文字列パス計算のみ行うため、テストではfsアクセスなしで検証できる。
+function computePrefixFromRealFilePath(realFilePath) {
+  const packageRoot = path.resolve(path.dirname(realFilePath), '..');
+  const candidatePrefix = path.resolve(packageRoot, '..', '..', '..', '..');
+  const expectedPackageRoot = path.join(candidatePrefix, 'lib', 'node_modules', '@bash0816', 'agy-termux');
+  if (path.resolve(expectedPackageRoot) !== packageRoot) {
+    return null;
+  }
+  return candidatePrefix;
+}
+
+function detectOwnPrefix() {
+  // fs.realpathSync(__filename) を基点にすることで、symlink経由の起動でも実体のパスで判定する。
+  const realFile = fs.realpathSync(__filename);
+  return computePrefixFromRealFilePath(realFile);
+}
+
 function needsPatch() {
   try {
     const maps = fs.readFileSync('/proc/self/maps','utf8').trim().split('\n');
@@ -89,10 +108,19 @@ async function main() {
       console.log('[agy] 最新版です (' + currentVersion + ')');
       process.exit(0);
     }
-    process.stderr.write('[agy] ' + currentVersion + ' → ' + latest + ' に更新します...\n');
-    const inst = spawnSync('npm', ['install', '-g', '@bash0816/agy-termux@latest'], { shell: false, stdio: 'inherit', timeout: 60000 });
+    const ownPrefix = detectOwnPrefix();
+    if (!ownPrefix) {
+      console.error('[agy] 自身の実際のインストール位置を検出できませんでした。');
+      console.error('[agy] このまま更新すると、別の場所(npmのデフォルトprefix)を誤って更新してしまう恐れがあるため中止します。');
+      console.error('[agy] 実行中のスクリプトの実体: ' + fs.realpathSync(__filename));
+      console.error('[agy] 手動で更新するには、上記パスから推定されるprefixを指定して以下を実行してください:');
+      console.error('[agy]   npm install -g --prefix <検出したprefix> @bash0816/agy-termux@latest');
+      process.exit(1);
+    }
+    process.stderr.write('[agy] ' + currentVersion + ' → ' + latest + ' に更新します... (prefix: ' + ownPrefix + ')\n');
+    const inst = spawnSync('npm', ['install', '-g', '--prefix', ownPrefix, '@bash0816/agy-termux@latest'], { shell: false, stdio: 'inherit', timeout: 60000 });
     if (inst.error || inst.status !== 0) {
-      console.error('[agy] 更新に失敗しました。前のバージョンに戻すには: npm install -g @bash0816/agy-termux@' + currentVersion);
+      console.error('[agy] 更新に失敗しました。前のバージョンに戻すには: npm install -g --prefix ' + ownPrefix + ' @bash0816/agy-termux@' + currentVersion);
       process.exit(1);
     }
     console.log('[agy] 更新完了');
@@ -182,4 +210,8 @@ async function main() {
     process.exit(1);
   });
 }
-main().catch(err => { console.error(`[agy] Error: ${err.message}`); process.exit(1); });
+if (require.main === module) {
+  main().catch(err => { console.error(`[agy] Error: ${err.message}`); process.exit(1); });
+}
+
+module.exports = { computePrefixFromRealFilePath, detectOwnPrefix };
