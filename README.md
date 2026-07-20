@@ -7,6 +7,19 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
+> ⚠️ **Notice (2026-07-20): Terms of Service risk under review / 利用規約リスクについて検討中**
+>
+> Google Antigravity's terms of service state that accessing Antigravity via third-party
+> software, tools, or services is a violation. There have been confirmed cases in early 2026
+> of paid Antigravity/Gemini subscribers being suspended for using third-party tools. Whether
+> this project should continue is currently **under review**. Use at your own risk.
+>
+> Google Antigravity の利用規約には、サードパーティのソフトウェア・ツール・サービス経由での
+> アクセスが規約違反である旨が明記されています。2026年初頭、有料 Antigravity/Gemini
+> サブスクリプションユーザーがサードパーティツール利用を理由にアカウント停止された事例が
+> 確認されています。本プロジェクトを今後も継続するかは現在**検討中**です。利用は自己責任で
+> お願いします。
+
 ## What this does / 仕組み
 
 This package downloads the official `agy` binary from Google's public release source
