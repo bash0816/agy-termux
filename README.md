@@ -7,18 +7,29 @@ Termux 向け Google Antigravity CLI (`agy`) wrapper package です。
 > **This project is not affiliated with, endorsed by, or sponsored by Google.**
 > このプロジェクトは Google と無関係です。Google から承認・提携・保証されたものではありません。
 
-> ⚠️ **Notice (2026-07-20): Terms of Service risk under review / 利用規約リスクについて検討中**
+> ⚠️ **Notice: Terms of Service risk / 利用規約リスクについて**
 >
 > Google Antigravity's terms of service state that accessing Antigravity via third-party
 > software, tools, or services is a violation. There have been confirmed cases in early 2026
-> of paid Antigravity/Gemini subscribers being suspended for using third-party tools. Whether
-> this project should continue is currently **under review**. Use at your own risk.
+> of paid Antigravity/Gemini subscribers being suspended for using third-party tools such as
+> OpenClaw and OpenCode.
+>
+> `agy-termux` is a thin, standalone wrapper that runs a single official Google-distributed
+> binary on Termux/Android — it does not integrate or bridge multiple third-party AI CLIs the
+> way OpenClaw/OpenCode do. Based on this structural difference, the maintainer has decided to
+> continue this project for the time being (as of 2026-07-23), while acknowledging that the
+> underlying ToS risk has not disappeared. Use at your own risk.
 >
 > Google Antigravity の利用規約には、サードパーティのソフトウェア・ツール・サービス経由での
 > アクセスが規約違反である旨が明記されています。2026年初頭、有料 Antigravity/Gemini
-> サブスクリプションユーザーがサードパーティツール利用を理由にアカウント停止された事例が
-> 確認されています。本プロジェクトを今後も継続するかは現在**検討中**です。利用は自己責任で
-> お願いします。
+> サブスクリプションユーザーが OpenClaw・OpenCode 等のサードパーティツール利用を理由に
+> アカウント停止された事例が確認されています。
+>
+> `agy-termux` は、Google 公式配布の単一バイナリを Termux/Android 上で動作させるだけの
+> 薄い単体ラッパーであり、OpenClaw/OpenCode のように複数のサードパーティ AI CLI を横断統合
+> するものではありません。この構造的な違いを踏まえ、開発者は本プロジェクトを当面継続する
+> ことを決定しました（2026-07-23時点）。ただし上記の利用規約リスク自体が消えたわけではありません。
+> 利用は自己責任でお願いします。
 
 ## What this does / 仕組み
 
