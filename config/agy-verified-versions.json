@@ -1,20 +1,20 @@
 {
-  "tag_name": "1.1.7",
-  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.1.7/agy_cli_linux_arm64.tar.gz",
-  "sha256_tar": "0d6d488851745e80e69b8935d063e742945811b47111994b1a6dbd27df3010d5",
-  "sha256_binary": "62194e776053b54a471a08a2f7b5e0f811c6aebef21b5c0bd74f528ae045416e",
+  "tag_name": "1.1.8",
+  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.1.8/agy_cli_linux_arm64.tar.gz",
+  "sha256_tar": "e75cebb03fce0fcad7d3bb682eb84c356a3c50ff8fb3dc4a89d2051f34fca0ab",
+  "sha256_binary": "d6e68423ab45c258006745c11d05728bcac0d797069e782db2c1be229dc2b112",
   "va39_patch_counts": {
     "ubfx": 2,
-    "lsl": 18,
+    "lsl": 19,
     "mask": 0,
-    "mmap": 7,
-    "word": 13
+    "mmap": 6,
+    "word": 7
   },
-  "release_id": 359592978,
-  "asset_id": 488927631,
-  "asset_updated_at": "2026-07-24T23:18:54Z",
+  "release_id": 360773607,
+  "asset_id": 492103209,
+  "asset_updated_at": "2026-07-28T00:38:46Z",
   "source_repo": "google-antigravity/antigravity-cli",
-  "verified_date": "2026-07-27",
+  "verified_date": "2026-07-31",
   "release_state": "stable",
-  "notes": "Promoted via promote-agy-candidate.js --confirm-device-verified on 2026-07-27. VA39 patch-count static check passed with no regression from the prior verified version. Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified."
+  "notes": "Promoted via promote-agy-candidate.js --confirm-device-verified on 2026-07-31. VA39 patch-count static check passed with no regression from the prior verified version. Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified."
 }
