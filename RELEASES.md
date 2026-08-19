@@ -1,4 +1,15 @@
-## 1.1.13 — 2026-08-16 ✅ Current \/ 現行版
+## 1.1.14 — 2026-08-20 ✅ Current \/ 現行版
+
+Google Antigravity CLI (agy) v1.1.14 対応。Termux 実機検証済み。
+agy v1.1.14 support. Verified on Termux (Android ARM64).
+
+```sh
+npm install -g @bash0816/agy-termux
+```
+
+---
+
+## 1.1.13 — 2026-08-16 ✅
 
 upstream google-antigravity/antigravity-cli@1.1.13 追従。
 
