@@ -35,6 +35,11 @@ on:
         options:
           - 'publish-candidate'
           - 'promote-to-latest'
+      expected_version:
+        description: 'Candidate version to promote (e.g. 1.1.26). Required for promote-to-latest; ignored for publish-candidate.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -170,6 +175,7 @@ jobs:
       - name: Swap candidate → latest (old latest → candidate)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
           set -euo pipefail
           CANDIDATE=$(npm view @bash0816/agy-termux dist-tags.candidate)
@@ -179,6 +185,15 @@ jobs:
 
           if [ -z "$CANDIDATE" ]; then
             echo "No @candidate tag found. Aborting."
+            exit 1
+          fi
+
+          if [ -z "${EXPECTED_VERSION:-}" ]; then
+            echo "expected_version is required for promote-to-latest. Aborting." >&2
+            exit 1
+          fi
+          if [ "$CANDIDATE" != "$EXPECTED_VERSION" ]; then
+            echo "Candidate version mismatch: expected '$EXPECTED_VERSION' but registry shows '$CANDIDATE'" >&2
             exit 1
           fi
 
