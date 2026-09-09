@@ -1,20 +1,20 @@
 {
-  "tag_name": "1.1.27",
-  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.1.27/agy_cli_linux_arm64.tar.gz",
-  "sha256_tar": "97fc9fe5a6067406cd02cbe4ae6e362c9623a24d33bec486911246c17ceb6a94",
-  "sha256_binary": "d0fc0a68ce78a0b8890e54a894ef5d582dcdb4d1b4264cf29dffc0becc026689",
+  "tag_name": "1.1.28",
+  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.1.28/agy_cli_linux_arm64.tar.gz",
+  "sha256_tar": "789420d2937393498eb158c4af8321d78c387e31c861db0c79627879509aa8a8",
+  "sha256_binary": "dedcbd13246fdc54929acd30a70d274f9829b9760849512e3faa4ad4c82cbcc2",
   "va39_patch_counts": {
-    "ubfx": 1,
-    "lsl": 18,
+    "ubfx": 2,
+    "lsl": 16,
     "mask": 0,
-    "mmap": 7,
-    "word": 13
+    "mmap": 6,
+    "word": 7
   },
   "va39_patch_regression": [],
-  "release_id": 383132125,
-  "asset_id": 545349564,
-  "asset_updated_at": "2026-09-05T04:23:22Z",
+  "release_id": 385149340,
+  "asset_id": 551653599,
+  "asset_updated_at": "2026-09-09T00:43:50Z",
   "source_repo": "google-antigravity/antigravity-cli",
-  "detected_date": "2026-09-05",
+  "detected_date": "2026-09-10",
   "status": "pending_device_verification"
 }
