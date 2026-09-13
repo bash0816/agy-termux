@@ -98,4 +98,4 @@ jobs:
             --body "Automated RELEASES.md update for v${RELEASE_VERSION}." \
             --base main \
             --head "$BRANCH"
-          gh pr merge "$BRANCH" --squash
+          gh pr merge "$BRANCH" --admin --squash --delete-branch
