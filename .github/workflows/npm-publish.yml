@@ -166,6 +166,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: write
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -206,3 +207,15 @@ jobs:
           echo "Promoted $CANDIDATE → @latest"
 
           npm dist-tag ls @bash0816/agy-termux
+
+      - name: Dispatch release-finalize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          ver="$EXPECTED_VERSION"
+          gh workflow run release-finalize.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --field version="${ver}"
+          echo "Dispatched release-finalize for ${ver}"
