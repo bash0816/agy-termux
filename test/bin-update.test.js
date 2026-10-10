@@ -141,7 +141,7 @@ function guardFakeNpm() {
     timeout: 20000,
     shell: false,
     env: {
-      PATH: `${fakeBin}:${process.env.PATH}`,
+      PATH: fakeBin,
       HOME: home,
       NPM_LOG: npmLog,
     },
