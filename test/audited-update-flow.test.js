@@ -316,3 +316,48 @@ test('(7h) checkPlacement: nonce・fs・realpath を付けて checkPlacementImpl
   assert.equal(o.fs, c.fsImpl);
   assert.equal(typeof o.realpath, 'function');
 });
+
+// (8) 確認失敗時の案内(B3): 原因と、ネットワーク確認・再実行の案内を出す
+const RETRY_GUIDE = 'ネットワークを確認して、もう一度 agy update を実行してください';
+
+function checkError(code, message, props) {
+  return Object.assign(new Error(message), { code }, props || {});
+}
+
+test('(8a) 監査済み版の確認が timeout で失敗 → 原因と案内を出し code 1', async () => {
+  const t = setup({ fetchAudited: async () => { throw checkError('E_NET', 'timeout'); } });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 1);
+  assert.equal(r.installed, false);
+  assert.ok(t.errLines.includes('[agy] 監査済み版の確認に失敗しました(タイムアウト)。' + RETRY_GUIDE), t.errLines.join(' | '));
+  assert.equal(t.calls.npm, 0);
+});
+
+test('(8b) 監査済み版の確認が E_HTTP(404) で失敗 → 原因は HTTP 404', async () => {
+  const t = setup({ fetchAudited: async () => { throw checkError('E_HTTP', 'HTTP 404', { httpStatus: 404 }); } });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 1);
+  assert.ok(t.errLines.includes('[agy] 監査済み版の確認に失敗しました(HTTP 404)。' + RETRY_GUIDE), t.errLines.join(' | '));
+});
+
+test('(8c) 監査済み版の確認が E_FORMAT で失敗 → 原因は応答の形式が不正です', async () => {
+  const t = setup({ fetchAudited: async () => { throw checkError('E_FORMAT', 'invalid tag_name'); } });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 1);
+  assert.ok(t.errLines.includes('[agy] 監査済み版の確認に失敗しました(応答の形式が不正です)。' + RETRY_GUIDE), t.errLines.join(' | '));
+});
+
+test('(8d) npmViewLatest が timeout で失敗 → registry の確認の原因はタイムアウト', async () => {
+  const t = setup({ npmViewLatest: async () => ({ ok: false, reason: 'timeout' }) });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 1);
+  assert.equal(t.calls.install.length, 0);
+  assert.ok(t.errLines.includes('[agy] registry の確認に失敗しました(タイムアウト)。' + RETRY_GUIDE), t.errLines.join(' | '));
+});
+
+test('(8e) npmViewLatest の reason が timeout 以外ならそのまま原因に出る', async () => {
+  const t = setup({ npmViewLatest: async () => ({ ok: false, reason: 'npm ERR! boom' }) });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 1);
+  assert.ok(t.errLines.includes('[agy] registry の確認に失敗しました(npm ERR! boom)。' + RETRY_GUIDE), t.errLines.join(' | '));
+});

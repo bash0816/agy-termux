@@ -65,7 +65,13 @@ function healthyModules() {
     'lib/downloader.js': fns(REQUIRED_EXPORTS['downloader']),
     'lib/patcher.js': fns(REQUIRED_EXPORTS['patcher']),
     'lib/audited-update.js': fns(REQUIRED_EXPORTS['audited-update']),
+    'lib/errors.js': fns(REQUIRED_EXPORTS['errors']),
+    'lib/run-npm.js': fns(REQUIRED_EXPORTS['run-npm']),
     'lib/install-state.js': REAL_INSTALL_STATE,
+    'lib/notified.js': fns(REQUIRED_EXPORTS['notified']),
+    'lib/consent.js': fns(REQUIRED_EXPORTS['consent']),
+    'lib/render-final.js': fns(REQUIRED_EXPORTS['render-final']),
+    'lib/run-sync-child.js': fns(REQUIRED_EXPORTS['run-sync-child']),
   }
 }
 
@@ -247,4 +253,48 @@ test('pkgRoot が無くても例外を投げず ok=false を返す', () => {
   assert.strictEqual(r.line, null)
   assert.ok(r.problems.includes('config'))
   assert.ok(r.problems.includes('shim'))
+})
+
+const NEW_MODULES = ['errors', 'run-npm', 'install-state', 'notified', 'consent', 'render-final', 'run-sync-child']
+
+for (const name of NEW_MODULES) {
+  test(`新しい lib/${name}.js の読込失敗は require:${name} になる`, () => {
+    const modules = healthyModules()
+    modules[`lib/${name}.js`] = new Error(`Cannot find module '${name}'`)
+    const r = run({ modules })
+    assert.strictEqual(r.ok, false)
+    assert.ok(r.problems.includes('require:' + name), JSON.stringify(r.problems))
+  })
+}
+
+test('run-npm の export 欠落は export:run-npm.runNpm になる', () => {
+  const modules = healthyModules()
+  delete modules['lib/run-npm.js'].runNpm
+  const r = run({ modules })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['export:run-npm.runNpm'])
+})
+
+test('consent の export 欠落は export:consent.createConsent になる', () => {
+  const modules = healthyModules()
+  delete modules['lib/consent.js'].createConsent
+  const r = run({ modules })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['export:consent.createConsent'])
+})
+
+test('render-final の export が関数でなければ export:render-final.renderFinal になる', () => {
+  const modules = healthyModules()
+  modules['lib/render-final.js'].renderFinal = 'not a function'
+  const r = run({ modules })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['export:render-final.renderFinal'])
+})
+
+test('実パッケージ全体を対象にすると ok になり、SELF_CHECK_OK 行を返す', () => {
+  const repoRoot = path.join(__dirname, '..')
+  const r = runSelfCheck({ pkgRoot: repoRoot, nonce: 'x' })
+  assert.deepStrictEqual(r.problems, [])
+  assert.strictEqual(r.ok, true)
+  assert.strictEqual(r.line, 'SELF_CHECK_OK x ' + r.version)
 })

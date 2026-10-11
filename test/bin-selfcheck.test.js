@@ -69,3 +69,14 @@ test('どのケースでも HOME は空のまま(何も書き込まれない)', 
   runAgy(AGY, ['--self-check'], home)
   assert.deepStrictEqual(fs.readdirSync(home), [])
 })
+
+test('lib/run-npm.js を欠いたコピーでは --self-check=zzz が終了コード 1 で、SELF_CHECK_OK を出さない', () => {
+  const home = mkTmp('agy-sc-home-')
+  const copy = mkTmp('agy-sc-copy-')
+  const copyRoot = path.join(copy, 'pkg')
+  fs.cpSync(ROOT, copyRoot, { recursive: true })
+  fs.rmSync(path.join(copyRoot, 'lib', 'run-npm.js'), { force: true })
+  const r = runAgy(path.join(copyRoot, 'bin', 'agy.js'), ['--self-check=zzz'], home)
+  assert.strictEqual(r.status, 1)
+  assert.strictEqual(r.stdout.includes('SELF_CHECK_OK'), false)
+})

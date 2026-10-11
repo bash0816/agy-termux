@@ -255,7 +255,7 @@ async function main() {
     console.error('  pkg install glibc-repo && pkg install glibc'); process.exit(1);
   }
   const g = await consent.gateDownload();
-  if (g === 'declined') { console.error('キャンセルしました。'); process.exit(0); }
+  if (g === 'declined') { console.error('[agy] 同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
   if (g === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
 
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
@@ -291,7 +291,7 @@ async function main() {
 
   if (!cacheHit && isPatch) {
     const c = await consent.gateCompat();
-    if (c === 'declined') { console.error('キャンセルしました。'); process.exit(0); }
+    if (c === 'declined') { console.error('[agy] 互換調整に同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
     if (c === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
   }
 

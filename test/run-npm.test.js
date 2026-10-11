@@ -182,6 +182,51 @@ test('heartbeat: forward=true で 3 秒ごとに行を出していれば heartbe
   assert.ok(writes.every(([stream, text]) => stream === 'stdout' && text === 'progress\n'))
 })
 
+test('heartbeat: forward=true で開始 1 秒に 1 行出した後は、最後の表示から 5 秒後(開始 6 秒)に出て、以後 5 秒ごとに出る', async () => {
+  const { clock, child, writes, promise } = startFake({ forward: true })
+  clock.advance(1000)
+  child.stdout.emit('data', 'first\n')
+  clock.advance(4999)
+  assert.deepEqual(writes, [['stdout', 'first\n']])
+
+  clock.advance(1)
+  assert.deepEqual(writes, [
+    ['stdout', 'first\n'],
+    ['stderr', '  ...npm install (経過 6 秒)\n'],
+  ])
+
+  clock.advance(4000)
+  assert.equal(writes.length, 2)
+
+  clock.advance(1000)
+  assert.deepEqual(writes[2], ['stderr', '  ...npm install (経過 11 秒)\n'])
+
+  clock.advance(5000)
+  assert.deepEqual(writes[3], ['stderr', '  ...npm install (経過 16 秒)\n'])
+  assert.equal(writes.length, 4)
+
+  child.emit('close', 0, null)
+  await promise
+})
+
+test('heartbeat: tickMs を明示したときは、その刻みで判定される', async () => {
+  const { clock, child, writes, promise } = startFake({ forward: true, tickMs: 500 })
+  clock.advance(1200)
+  child.stdout.emit('data', 'line\n')
+
+  clock.advance(4800)
+  assert.deepEqual(writes, [['stdout', 'line\n']])
+
+  clock.advance(500)
+  assert.deepEqual(writes, [
+    ['stdout', 'line\n'],
+    ['stderr', '  ...npm install (経過 6 秒)\n'],
+  ])
+
+  child.emit('close', 0, null)
+  await promise
+})
+
 test('timeout: SIGTERM のあと termGraceMs で SIGKILL を送り、close が来れば ok=false', async () => {
   const { clock, child, promise } = startFake()
   clock.advance(60000)

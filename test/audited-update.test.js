@@ -590,7 +590,7 @@ test('createDeps', async (t) => {
     assert.equal(runNpm.calls.length, 1);
     assert.deepEqual(runNpm.calls[0].args, ['install', '-g', '--prefix', '/p', '@bash0816/agy-termux@1.2.16']);
     assert.equal(runNpm.calls[0].opts.label, '更新');
-    assert.equal(runNpm.calls[0].opts.timeoutMs, 60000);
+    assert.equal(runNpm.calls[0].opts.timeoutMs, 120000);
     assert.equal(runNpm.calls[0].opts.termGraceMs, 10000);
     assert.equal(runNpm.calls[0].opts.forward, true);
   });

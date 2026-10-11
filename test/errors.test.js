@@ -232,6 +232,38 @@ test('describeFailure: errno は code より優先する', () => {
   ])
 })
 
+test('describeFailure: 実際の Node 例外(数値の errno)は code で判定する', () => {
+  assert.deepStrictEqual(describeFailure({ code: 'ENOSPC', errno: -28, path: '/x/y' }), [
+    '保存できません(容量不足): /x/y。空き容量を確認してください(古いキャッシュは ~/.agy-termux に残っています)',
+  ])
+  assert.deepStrictEqual(describeFailure({ code: 'EACCES', errno: -13, path: '/x/y' }), [
+    '保存できません(権限エラー): /x/y。このフォルダへの書き込み権限を確認してください',
+    '例: ls -ld /x',
+  ])
+})
+
+test('describeFailure: 権限系の errno 文字列(EPERM / EROFS)も権限の案内', () => {
+  assert.deepStrictEqual(describeFailure({ code: 'EPERM', errno: -1 }), [
+    '保存できません(権限エラー)。このフォルダへの書き込み権限を確認してください',
+  ])
+  assert.deepStrictEqual(describeFailure({ code: 'EROFS', errno: -30 }), [
+    '保存できません(権限エラー)。このフォルダへの書き込み権限を確認してください',
+  ])
+})
+
+test('describeFailure: 通信系の errno 文字列は通信の案内になる', () => {
+  const expected = ['通信が止まりました(または接続できません)。ネットワークを確認して、もう一度 agy update を実行してください']
+  assert.deepStrictEqual(describeFailure({ code: 'E_NET', errno: 'ENOTFOUND' }), expected)
+  assert.deepStrictEqual(describeFailure({ code: 'E_NET', errno: 'ECONNRESET' }), expected)
+  assert.deepStrictEqual(describeFailure({ code: 'E_STALL', errno: 'ETIMEDOUT' }), expected)
+})
+
+test('describeFailure: 数値の errno で code が無ければ default の案内', () => {
+  assert.deepStrictEqual(describeFailure({ errno: -28 }), [
+    '失敗しました(原因を特定できません: )。もう一度実行してください',
+  ])
+})
+
 test('diagnoseLowSpace: 既定の閾値 64MB 未満で true', () => {
   assert.equal(diagnoseLowSpace({ free: 10 * MB }), true)
   assert.equal(diagnoseLowSpace({ free: 64 * MB - 1 }), true)

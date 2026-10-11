@@ -94,9 +94,11 @@ While the binary is downloaded, `agy update` shows each stage (verification, ext
 
 The first time, `agy update` asks for your consent to the download and the compatibility adjustment. It asks only when run from a terminal (TTY). If input is not a terminal (for example, a pipe or redirect) and consent has not been given, it does not ask; it prints `同意の入力がありません。端末から agy update または agy を実行してください` and exits with status 1. If you decline, the binary is neither downloaded nor saved, and you are asked again the next time you run it.
 
+If you update from an older wrapper that cannot fetch the binary during the update, the first `agy` start after the update downloads it once.
+
 If `npm install` fails or is interrupted, `agy update` checks the actual installed state. If the original version is intact, it keeps that version and tells you so. If the package is incomplete, it reinstalls the original version once automatically; if that also fails, it prints the cause and the next command to run. If you are on a local test build and want to force-reinstall the published `latest` version regardless of version numbers, run `npm install -g @bash0816/agy-termux@latest` manually.
 
-- Cache files are named per version (`agy-<version>.bin` or `agy-<version>.va39`). Cache files in the old format and cache files of older versions are deleted automatically. Files used within the last 10 minutes are not deleted. The deletion is reported only when something was deleted, as `古いキャッシュを削除しました: N 件、M MB`. You do not need to delete them manually.
+- Cache files are named per version (`agy-<version>.bin` or `agy-<version>.va39`). Cache files in the old format and cache files of older versions are deleted automatically. Files modified within the last 10 minutes are not deleted. The deletion is reported only when something was deleted, as `古いキャッシュを削除しました: N 件、M MB`. You do not need to delete them manually.
 - In rare cases, starting an older version while `agy update` is cleaning up can fail once. This can happen when an older wrapper without this fix is used elsewhere at the same time. Run it again.
 - To force a fresh download of the current binary, run `AGY_TERMUX_REFRESH=1 agy`.
 
@@ -110,9 +112,11 @@ If `npm install` fails or is interrupted, `agy update` checks the actual install
 
 初回は、ダウンロードと互換調整についての同意を確認します。質問するのは端末(TTY)から実行したときだけです。パイプやリダイレクトなど端末でない入力で同意がない場合は質問せず、`同意の入力がありません。端末から agy update または agy を実行してください` と表示して終了コード 1 で終わります。同意しなかった場合はバイナリを取得も保存もせず、次に実行したときにもう一度尋ねます。
 
+更新中にバイナリを取得できない古いラッパーから更新した場合は、更新後の最初の `agy` 起動で、バイナリを 1 回取得します。
+
 `npm install` が失敗または中断した場合、`agy update` は実際の配置状態を確認します。元の版が無事なら、元の版のまま案内します。パッケージが不完全なら、元の版を 1 回だけ自動で入れ直し、それも失敗した場合は原因と次に実行するコマンドを案内します。ローカルテストビルドを使用中で、バージョン番号によらず公開済みの `latest` へ強制的に戻したい場合は、`npm install -g @bash0816/agy-termux@latest` を手動で実行してください。
 
-- キャッシュのファイルは版ごとの名前です(`agy-<版>.bin` または `agy-<版>.va39`)。旧形式のキャッシュと古い版のキャッシュは自動で削除されます。最近(10 分以内)に使われたファイルは削除されません。削除したときだけ `古いキャッシュを削除しました: N 件、M MB` と表示されます。手動で削除する必要はありません。
+- キャッシュのファイルは版ごとの名前です(`agy-<版>.bin` または `agy-<版>.va39`)。旧形式のキャッシュと古い版のキャッシュは自動で削除されます。10 分以内に更新されたファイルは削除されません。削除したときだけ `古いキャッシュを削除しました: N 件、M MB` と表示されます。手動で削除する必要はありません。
 - まれに、`agy update` が古い版のファイルを整理している最中にその古い版を起動すると、起動に 1 回失敗することがあります。この修正を含まない古い版のラッパーを別の場所で同時に使っている場合に起こります。もう一度実行してください。
 - 現在のバイナリを取得し直したいときは、`AGY_TERMUX_REFRESH=1 agy` を実行してください。
 

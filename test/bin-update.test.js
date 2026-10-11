@@ -89,7 +89,7 @@ function setup(name, version, { consent = true } = {}) {
 
 // 実 bin/agy.js を子プロセスで起動する。env は最小(親の AGY_* 環境変数は引き継がない)
 function runAgy(sb, args, env = {}, agy = sb.agy) {
-  const r = spawnSync(process.execPath, ['--require', MOCK, agy, ...args], {
+  const r = spawnSync(process.execPath, [agy, ...args], {
     encoding: 'utf8',
     timeout: 20000,
     env: {
@@ -99,6 +99,9 @@ function runAgy(sb, args, env = {}, agy = sb.agy) {
       MOCK_HTTPS_LOG: sb.mockLog,
       // 偽の VA 幅を固定し、キャッシュ名を agy-<tag>.bin に決める(実機の差に依存しない)
       MOCK_VA_BITS: '48',
+      // NODE_OPTIONS で mock を読み込み、孫プロセス(run-sync-child)にも効かせる。
+      // mock-https.js は二重読み込みを防いでいないため、argv の --require とは併用しない
+      NODE_OPTIONS: (process.env.NODE_OPTIONS ? process.env.NODE_OPTIONS + ' ' : '') + '--require ' + MOCK,
       ...env,
     },
   });

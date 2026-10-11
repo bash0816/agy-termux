@@ -66,7 +66,7 @@ test('(a) install 失敗で A が無事なら、表示して code 1。runInstall
   assert.equal(r.notice, null);
   assert.equal(t.calls.install.length, 1);
   assert.equal(t.calls.install[0].version, '1.2.3');
-  assert.equal(t.calls.install[0].opts.timeoutMs, 60000);
+  assert.equal(t.calls.install[0].opts.timeoutMs, 120000);
   assert.deepEqual(t.calls.placement.map((c) => c.expectedVersion), ['1.2.0']);
   assert.equal(t.calls.placement[0].pkgDir, PKG);
   assert.ok(t.errLines.includes(KEEP_MSG), 'A のままの案内が出る: ' + t.errLines.join(' | '));
@@ -103,7 +103,7 @@ test('(c-1) 両方不完全で入れ直しが成功し A が無事なら、(a) �
   assert.equal(r.to, '1.2.3');
   assert.equal(t.calls.install.length, 2, '合計2回。3回目は無い(queue が空なら例外)');
   assert.equal(t.calls.install[0].version, '1.2.3');
-  assert.equal(t.calls.install[0].opts.timeoutMs, 60000);
+  assert.equal(t.calls.install[0].opts.timeoutMs, 120000);
   assert.equal(t.calls.install[1].version, '1.2.0');
   assert.equal(t.calls.install[1].opts.timeoutMs, 120000);
   assert.deepEqual(t.calls.placement.map((c) => c.expectedVersion), ['1.2.0', '1.2.3', '1.2.0']);

@@ -292,3 +292,29 @@ test('checkPlacement: runSelfCheck が例外を投げても例外は外へ出ず
   assert.equal(r.complete, false)
   assert.deepStrictEqual(r.problems, ['self_check'])
 })
+
+test('REQUIRED_FILES に新しい 8 モジュールが含まれる', () => {
+  const added = [
+    'lib/errors.js',
+    'lib/run-npm.js',
+    'lib/install-state.js',
+    'lib/notified.js',
+    'lib/consent.js',
+    'lib/render-final.js',
+    'lib/run-sync-child.js',
+    'lib/self-check.js',
+  ]
+  for (const f of added) {
+    assert.ok(REQUIRED_FILES.includes(f), 'REQUIRED_FILES に無い: ' + f)
+  }
+})
+
+test('checkPlacement: lib/run-npm.js が欠落すると missing:lib/run-npm.js で不合格、self-check を呼ばない', () => {
+  const files = baseFiles()
+  delete files[path.join(PKG, 'lib', 'run-npm.js')]
+  const { opts, calls } = setup({ files })
+  const r = checkPlacement(opts)
+  assert.equal(r.complete, false)
+  assert.ok(r.problems.includes('missing:lib/run-npm.js'), JSON.stringify(r.problems))
+  assert.equal(calls.length, 0)
+})
