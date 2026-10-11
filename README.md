@@ -88,13 +88,23 @@ This package downloads a specific verified version of the `agy` binary pinned in
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 Note: When `AGY_TERMUX_FORCE_LATEST=1` is set, the output of `--version` does not reflect the actual upstream version being used — it always displays the wrapper package version as configured in `package.json`.
 
-`agy update` checks the audited version published in this repository (the version that has passed review), and reinstalls only if it is newer than the installed version and matches the npm `latest` tag. It installs that exact version into the prefix this wrapper is installed in. If you are on a local test build and want to force-reinstall the published `latest` version regardless of version numbers, run `npm install -g @bash0816/agy-termux@latest` manually.
+`agy update` checks the audited version published in this repository (the version that has passed review). If it is newer than the installed version and matches the npm `latest` tag, it reinstalls that exact version into the prefix this wrapper is installed in. It then makes sure the matching Antigravity CLI binary is in the cache (`~/.agy-termux`), so the next `agy` start does not have to download anything. If you are already on the audited version, `agy update` still checks the cache and downloads the binary if it is missing. If you are on a local test build and want to force-reinstall the published `latest` version regardless of version numbers, run `npm install -g @bash0816/agy-termux@latest` manually.
+
+- Cache files are named per version (`agy-<version>.bin` or `agy-<version>.va39`). After a successful `agy update`, the current version and the previous one are kept and older ones are removed. Files left by older wrapper versions (`.bin`, `agy.va39`, `.version`) are not removed automatically: `agy update` lists them with their total size so you can delete them yourself.
+- If you update from a wrapper version older than this change, the first `agy` start after `agy update` downloads the new binary once. Later updates download it during `agy update`.
+- In rare cases, starting an older version while `agy update` is cleaning up can fail once. Run it again.
+- To force a fresh download of the current binary, run `AGY_TERMUX_REFRESH=1 agy`.
 
 このパッケージは `config/agy-verified-versions.json` に固定された検証済みバージョンをダウンロードします。SIGSYS対応の互換性が保証されます。
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 注記: `AGY_TERMUX_FORCE_LATEST=1` が設定されている場合、`--version` の表示は実際に取得される upstream バージョンを反映しません — 常に `package.json` で定義されたラッパーパッケージバージョンを表示します。
 
-`agy update` は、このリポジトリで公開している監査済みバージョン(レビューを通過した版)を確認し、インストール済みより新しく、かつ npm の `latest` タグと一致する場合のみ再インストールします。再インストールは、このラッパーがインストールされている prefix に対して、その版を固定して行います。ローカルテストビルドを使用中で、バージョン番号によらず公開済みの `latest` へ強制的に戻したい場合は、`npm install -g @bash0816/agy-termux@latest` を手動で実行してください。
+`agy update` は、このリポジトリで公開している監査済みバージョン(レビューを通過した版)を確認し、インストール済みより新しく、かつ npm の `latest` タグと一致する場合のみ、このラッパーがインストールされている prefix にその版を固定して再インストールします。続けて、対応する Antigravity CLI のバイナリがキャッシュ(`~/.agy-termux`)にあることを確認し、無ければ取得します。そのため、次回の `agy` 起動で取得処理は走りません。すでに監査済みの版を使っている場合でも、`agy update` はキャッシュを確認し、バイナリが無ければ取得します。ローカルテストビルドを使用中で、バージョン番号によらず公開済みの `latest` へ強制的に戻したい場合は、`npm install -g @bash0816/agy-termux@latest` を手動で実行してください。
+
+- キャッシュのファイルは版ごとの名前です(`agy-<版>.bin` または `agy-<版>.va39`)。`agy update` が成功すると、現在の版と直前の版を残し、それより古いものを削除します。古いラッパーが残したファイル(`.bin`・`agy.va39`・`.version`)は自動では削除しません。`agy update` が一覧と合計サイズを表示するので、ご自身で削除してください。
+- この変更より前のラッパーから更新した場合、`agy update` の後の最初の `agy` 起動で、新しいバイナリを 1 回取得します。以降の更新では `agy update` の中で取得します。
+- まれに、`agy update` が古い版のファイルを整理している最中にその古い版を起動すると、起動に 1 回失敗することがあります。もう一度実行してください。
+- 現在のバイナリを取得し直したいときは、`AGY_TERMUX_REFRESH=1 agy` を実行してください。
 
 ## Usage / 使い方
 
