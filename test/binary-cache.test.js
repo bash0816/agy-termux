@@ -291,8 +291,8 @@ function syncDeps(over = {}) {
 test('syncBinary: 初回の同意が無ければ省略し、以降の処理と掃除をしない', async () => {
   const { deps, calls, out, err } = syncDeps({ hasConsent: (key) => { calls.push('hasConsent:' + key); return false; } });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'skipped', reason: 'consent' });
-  assert.deepEqual(out, ['[agy] 今回はバイナリ同期を省略しました: 初回の同意が必要です。agy を一度起動して同意してください']);
+  assert.deepEqual(r, { status: 'skipped', reason: 'consent_declined', detail: '', tag: '1.2.16', deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(out, []);
   assert.deepEqual(err, []);
   assert.deepEqual(calls, ['hasConsent:download']);
 });
@@ -300,11 +300,8 @@ test('syncBinary: 初回の同意が無ければ省略し、以降の処理と�
 test('syncBinary: loader が無ければ error にして案内する', async () => {
   const { deps, calls, out, err } = syncDeps({ loaderExists: () => { calls.push('loaderExists'); return false; } });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'error', reason: 'loader' });
-  assert.deepEqual(err, [
-    '[agy] glibc loader が見つかりません。',
-    '  pkg install glibc-repo && pkg install glibc',
-  ]);
+  assert.deepEqual(r, { status: 'error', reason: 'loader', detail: '', tag: '1.2.16', deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(err, []);
   assert.deepEqual(out, []);
   assert.deepEqual(calls, ['hasConsent:download', 'loaderExists']);
 });
@@ -312,10 +309,10 @@ test('syncBinary: loader が無ければ error にして案内する', async () 
 test('syncBinary: キャッシュが有効なら current。掃除だけ行い、取得や互換確認はしない', async () => {
   const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps() });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'current' });
-  assert.deepEqual(out, ['[agy] バイナリは最新です (1.2.16)']);
+  assert.deepEqual(r, { status: 'current', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39'), deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(out, []);
   assert.deepEqual(err, []);
-  assert.deepEqual(calls, ['hasConsent:download', 'loaderExists', 'prune:1.2.16', 'listManualCleanup']);
+  assert.deepEqual(calls, ['hasConsent:download', 'loaderExists', 'prune:1.2.16']);
 });
 
 test('syncBinary: 手動削除候補があれば一覧・合計・案内を出す', async () => {
@@ -326,17 +323,13 @@ test('syncBinary: 手動削除候補があれば一覧・合計・案内を出�
     ],
     total: 12,
   };
-  const { deps, out } = syncDeps({ fsDeps: fakeFsDeps(), listManualCleanup: () => listing });
-  await bc.syncBinary(deps);
-  assert.deepEqual(out, [
-    '[agy] バイナリは最新です (1.2.16)',
-    '[agy] 手動で削除できる古いファイルがあります:',
-    '  /virtual/cache/agy.bin (5 bytes)',
-    '  /virtual/cache/unverified/agy-1.2.16.va39 (7 bytes)',
-    '[agy] 合計: 12 bytes',
-    '[agy] 実行中の agy が無いことを確認してから rm で削除できます',
-    "[agy] 例: rm -f -- '/virtual/cache/agy.bin' '/virtual/cache/unverified/agy-1.2.16.va39'",
-  ]);
+  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps(), listManualCleanup: () => listing });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'current');
+  // 手動削除の案内は出さず、listManualCleanup も呼ばない
+  assert.deepEqual(out, []);
+  assert.deepEqual(err, []);
+  assert.deepEqual(calls, ['hasConsent:download', 'loaderExists', 'prune:1.2.16']);
 });
 
 test('syncBinary: パッチ版で互換同意が無く、拒否されたら skipped にして取得しない', async () => {
@@ -345,21 +338,21 @@ test('syncBinary: パッチ版で互換同意が無く、拒否されたら skip
     confirmCompat: async () => { calls.push('confirmCompat'); return false; },
   });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'skipped', reason: 'compat' });
-  assert.deepEqual(out, ['[agy] 今回はバイナリ取得を省略しました: 互換調整に同意されませんでした']);
+  assert.deepEqual(r, { status: 'skipped', reason: 'compat_declined', detail: '', tag: '1.2.16', deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(out, []);
   assert.deepEqual(calls, ['hasConsent:download', 'loaderExists', 'hasConsent:compat', 'confirmCompat']);
 });
 
 test('syncBinary: パッチ版で互換同意済みなら confirmCompat を呼ばず取得する', async () => {
   const { deps, calls, out } = syncDeps({ fsDeps: fakeFsDeps({ exists: false }) });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'synced', file: path.join('/virtual/cache', 'agy-1.2.16.va39') });
+  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39'), deleted: { count: 0, bytes: 0 } });
   assert.deepEqual(calls, [
     'hasConsent:download', 'loaderExists', 'hasConsent:compat',
     'install:' + path.join('/virtual/cache', 'agy-1.2.16.va39'),
-    'prune:1.2.16', 'listManualCleanup',
+    'prune:1.2.16',
   ]);
-  assert.deepEqual(out, ['[agy] バイナリを 1.2.16 に更新しました']);
+  assert.deepEqual(out, []);
 });
 
 test('syncBinary: パッチ版で互換同意が無ければ確認し、承諾されたら取得する', async () => {
@@ -369,18 +362,18 @@ test('syncBinary: パッチ版で互換同意が無ければ確認し、承諾�
   assert.deepEqual(calls, [
     'hasConsent:download', 'loaderExists', 'hasConsent:compat', 'confirmCompat',
     'install:' + path.join('/virtual/cache', 'agy-1.2.16.va39'),
-    'prune:1.2.16', 'listManualCleanup',
+    'prune:1.2.16',
   ]);
 });
 
 test('syncBinary: 非パッチ版では互換確認をせず .bin を取得する', async () => {
   const { deps, calls } = syncDeps({ isPatch: false, hasConsent: (key) => { calls.push('hasConsent:' + key); return key === 'download'; } });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'synced', file: path.join('/virtual/cache', 'agy-1.2.16.bin') });
+  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.bin'), deleted: { count: 0, bytes: 0 } });
   assert.deepEqual(calls, [
     'hasConsent:download', 'loaderExists',
     'install:' + path.join('/virtual/cache', 'agy-1.2.16.bin'),
-    'prune:1.2.16', 'listManualCleanup',
+    'prune:1.2.16',
   ]);
 });
 
@@ -389,11 +382,8 @@ test('syncBinary: 取得に失敗したら error。掃除と案内はしない',
     install: async () => { calls.push('install'); throw new Error('net down'); },
   });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'error', reason: 'install' });
-  assert.deepEqual(err, [
-    '[agy] バイナリの取得に失敗しました: net down',
-    'ネットワークを確認して agy update を再実行するか、agy を起動してください',
-  ]);
+  assert.deepEqual(r, { status: 'error', reason: 'install', detail: 'net down', tag: '1.2.16', deleted: { count: 0, bytes: 0 }, error: { detail: 'net down' } });
+  assert.deepEqual(err, []);
   assert.deepEqual(out, []);
   assert.deepEqual(calls, ['hasConsent:download', 'loaderExists', 'hasConsent:compat', 'install']);
 });
@@ -401,8 +391,8 @@ test('syncBinary: 取得に失敗したら error。掃除と案内はしない',
 test('syncBinary: prune が例外を投げても synced の結果は変わらない', async () => {
   const { deps, out } = syncDeps({ prune: () => { throw new Error('prune boom'); } });
   const r = await bc.syncBinary(deps);
-  assert.equal(r.status, 'synced');
-  assert.deepEqual(out, ['[agy] バイナリを 1.2.16 に更新しました']);
+  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39'), deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(out, []);
 });
 
 test('syncBinary: 不正な tagName は cachePaths の例外をそのまま返す', async () => {
@@ -434,7 +424,7 @@ test('prune: pin と最新の1版だけを残し、他のタグは両拡張子�
   });
   const { deps } = pruneDeps();
   const deleted = bc.prune(deps, { dir, pinTag: '1.2.16' });
-  assert.deepEqual(deleted.sort(), ['agy-1.0.0.bin', 'agy-1.1.0.bin']);
+  assert.deepEqual(deleted.files.sort(), ['agy-1.0.0.bin', 'agy-1.1.0.bin']);
   assert.deepEqual(fs.readdirSync(dir).sort(), [
     'agy-1.2.16.bin', 'agy-1.2.16.va39', 'agy-1.3.0.bin', 'agy-1.3.0.va39',
   ]);
@@ -446,13 +436,13 @@ test('prune: タグの更新時刻は両拡張子の最大で決まる', (t) => 
     'agy-2.0.0.va39': 400,
   });
   const { deps } = pruneDeps();
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: '9.9.9' }), ['agy-2.0.0.va39']);
+  assert.deepEqual(bc.prune(deps, { dir, pinTag: '9.9.9' }).files, ['agy-2.0.0.va39']);
 });
 
 test('prune: 同じ更新時刻なら版を数値で比べ、1.10.0 は 1.9.0 より新しい', (t) => {
   const dir = writeFiles(mkTmp(t), { 'agy-1.9.0.bin': 100, 'agy-1.10.0.bin': 100 });
   const { deps } = pruneDeps();
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: '2.0.0' }), ['agy-1.9.0.bin']);
+  assert.deepEqual(bc.prune(deps, { dir, pinTag: '2.0.0' }).files, ['agy-1.9.0.bin']);
   assert.deepEqual(fs.readdirSync(dir), ['agy-1.10.0.bin']);
 });
 
@@ -461,27 +451,33 @@ test('prune: pinTag は v 付きでも正規化して一致を見る', (t) => {
     'agy-1.2.16.bin': 10, 'agy-1.3.0.bin': 200, 'agy-1.4.0.bin': 300,
   });
   const { deps } = pruneDeps();
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: 'v1.2.16' }), ['agy-1.3.0.bin']);
+  assert.deepEqual(bc.prune(deps, { dir, pinTag: 'v1.2.16' }).files, ['agy-1.3.0.bin']);
 });
 
 test('prune: pinTag が不正なら何も消さず [] を返す', (t) => {
   const dir = writeFiles(mkTmp(t), { 'agy-1.2.16.bin': 10, 'agy-1.3.0.bin': 20 });
   const { deps, seen } = pruneDeps();
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: 'latest' }), []);
+  const res = bc.prune(deps, { dir, pinTag: 'latest' });
+  assert.deepEqual(res.files, []);
+  assert.equal(res.count, 0);
+  assert.equal(res.bytes, 0);
   assert.equal(seen.unlink.length, 0);
   assert.equal(fs.readdirSync(dir).length, 2);
 });
 
 test('prune: 規則に完全一致しない名前には stat も unlink もしない', (t) => {
   const nonMatching = [
-    'agy.va39', 'agy.bin', '.version', '.bin.tmp',
+    'agy.va39.bak', 'agy.bin.bak', '.version.bak', '.bin.tmp.bak',
     'agy-1.2.16.bin.tmp', 'agy-1.2.16.bin.1234.ABC.tmp', 'agy-1.2.16.va39.bin', 'readme.txt',
   ];
   const entries = { 'agy-1.2.16.bin': 100, 'unverified/agy-0.9.0.bin': 1 };
   for (const n of nonMatching) entries[n] = 1;
   const dir = writeFiles(mkTmp(t), entries);
   const { deps, seen } = pruneDeps();
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: '1.2.16' }), []);
+  const res = bc.prune(deps, { dir, pinTag: '1.2.16' });
+  assert.deepEqual(res.files, []);
+  assert.equal(res.count, 0);
+  assert.equal(res.bytes, 0);
   const forbidden = nonMatching.map((n) => path.join(dir, n));
   forbidden.push(path.join(dir, 'unverified'), path.join(dir, 'unverified', 'agy-0.9.0.bin'));
   for (const p of [...seen.stat, ...seen.unlink]) {
@@ -503,7 +499,7 @@ function runTmpCase(t, { ageSec, status }) {
 
 test('prune: 所有プロセスが esrch で24時間以上前の一時ファイルは消す(installBinary の名前と対応)', (t) => {
   const r = runTmpCase(t, { ageSec: DAY_SEC + 1, status: 'esrch' });
-  assert.deepEqual(r.deleted, [r.tmpName]);
+  assert.deepEqual(r.deleted.files,[r.tmpName]);
   assert.deepEqual(r.remaining, []);
   // pid は文字列ではなく数値で渡す
   assert.deepEqual(r.seen.killPid, [1234]);
@@ -511,19 +507,19 @@ test('prune: 所有プロセスが esrch で24時間以上前の一時ファイ�
 
 test('prune: ちょうど24時間前の一時ファイルは消す(境界は含む)', (t) => {
   const r = runTmpCase(t, { ageSec: DAY_SEC, status: 'esrch' });
-  assert.deepEqual(r.deleted, [r.tmpName]);
+  assert.deepEqual(r.deleted.files,[r.tmpName]);
 });
 
 test('prune: 24時間未満の一時ファイルは esrch でも残す', (t) => {
   const r = runTmpCase(t, { ageSec: DAY_SEC - 1, status: 'esrch' });
-  assert.deepEqual(r.deleted, []);
+  assert.deepEqual(r.deleted.files,[]);
   assert.deepEqual(r.remaining, [r.tmpName]);
 });
 
 test('prune: 所有プロセスが alive または unknown なら古くても残す', (t) => {
   for (const status of ['alive', 'unknown']) {
     const r = runTmpCase(t, { ageSec: DAY_SEC * 3, status });
-    assert.deepEqual(r.deleted, [], status);
+    assert.deepEqual(r.deleted.files,[], status);
     assert.deepEqual(r.remaining, [r.tmpName], status);
   }
 });
@@ -536,7 +532,7 @@ test('prune: stat や unlink の失敗は握りつぶし、他の削除は続け
   const { deps } = pruneDeps({
     unlinkSync: (p) => { if (p.endsWith('agy-1.0.0.bin')) throw new Error('EPERM'); fs.unlinkSync(p); },
   });
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: '1.2.16' }), ['agy-0.9.0.bin']);
+  assert.deepEqual(bc.prune(deps, { dir, pinTag: '1.2.16' }).files, ['agy-0.9.0.bin']);
 });
 
 test('prune: stat に失敗したタグは消さない', (t) => {
@@ -546,13 +542,19 @@ test('prune: stat に失敗したタグは消さない', (t) => {
   const { deps } = pruneDeps({
     statSync: (p) => { if (p.endsWith('agy-1.0.0.bin')) throw new Error('EIO'); return fs.statSync(p); },
   });
-  assert.deepEqual(bc.prune(deps, { dir, pinTag: '1.2.16' }), []);
+  const res = bc.prune(deps, { dir, pinTag: '1.2.16' });
+  assert.deepEqual(res.files, []);
+  assert.equal(res.count, 0);
+  assert.equal(res.bytes, 0);
   assert.equal(fs.existsSync(path.join(dir, 'agy-1.0.0.bin')), true);
 });
 
 test('prune: readdir に失敗しても例外を投げず [] を返す', () => {
   const { deps } = pruneDeps({ readdirSync: () => { throw new Error('ENOENT'); } });
-  assert.deepEqual(bc.prune(deps, { dir: '/nonexistent', pinTag: '1.2.16' }), []);
+  const res = bc.prune(deps, { dir: '/nonexistent', pinTag: '1.2.16' });
+  assert.deepEqual(res.files, []);
+  assert.equal(res.count, 0);
+  assert.equal(res.bytes, 0);
 });
 
 // --- listManualCleanup ---

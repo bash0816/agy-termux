@@ -12,7 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { DEFAULT_URL } = require('../lib/audited-update');
-const { makeFakeNpm } = require('./helpers/wiring');
+const { makeBinary, makeFakeLoader, makeFakeNpm, writeConsent } = require('./helpers/wiring');
 
 const REPO = path.resolve(__dirname, '..');
 const MOCK = path.join(__dirname, 'helpers', 'mock-https.js');
@@ -63,7 +63,8 @@ function makeFakeBin(dir) {
 }
 
 // テストごとの隔離環境。標準レイアウトのパッケージを version で置く
-function setup(name, version) {
+// consent: false のときは同意ファイルを置かない(非 TTY の update で同意待ちに入る状態を作る)
+function setup(name, version, { consent = true } = {}) {
   const dir = newDir(name);
   const prefix = path.join(dir, 'prefix');
   const pkgDir = makePackage(stdPackageDir(prefix), version);
@@ -72,9 +73,12 @@ function setup(name, version) {
   fs.symlinkSync(path.join(pkgDir, 'bin', 'agy.js'), agyLink);
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
+  const realPrefix = fs.realpathSync(prefix);
+  makeFakeLoader(realPrefix);
+  if (consent) writeConsent(home, { download: true, compat: true });
   return {
     dir,
-    prefix: fs.realpathSync(prefix),
+    prefix: realPrefix,
     agy: path.join(pkgDir, 'bin', 'agy.js'),
     home,
     fakeBin: makeFakeBin(dir),
@@ -93,6 +97,8 @@ function runAgy(sb, args, env = {}, agy = sb.agy) {
       HOME: sb.home,
       NPM_LOG: sb.npmLog,
       MOCK_HTTPS_LOG: sb.mockLog,
+      // 偽の VA 幅を固定し、キャッシュ名を agy-<tag>.bin に決める(実機の差に依存しない)
+      MOCK_VA_BITS: '48',
       ...env,
     },
   });
@@ -103,6 +109,14 @@ function runAgy(sb, args, env = {}, agy = sb.agy) {
 function readLog(file) {
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+}
+
+// 新しい版のバイナリを検証済みキャッシュとして置く(更新成功の経路でバイナリ取得を省くため)
+function seedCache(sb, version) {
+  const bin = makeBinary(path.join(sb.dir, 'bin-src-' + version), version);
+  const cacheDir = path.join(sb.home, '.agy-termux');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.copyFileSync(bin.binPath, path.join(cacheDir, 'agy-' + version + '.bin'));
 }
 
 // npm install が呼ばれたかどうか
@@ -136,6 +150,7 @@ before(guardFakeNpm);
 for (const alias of ['update', '--update', 'upgrade']) {
   test(`W1 エイリアス ${alias}: 監査済み版と同じなら何もしない`, () => {
     const sb = setup('w1-' + alias.replace(/^-+/, ''), '1.2.16');
+    seedCache(sb, '1.2.16');
     const r = runAgy(sb, [alias], { MOCK_HTTPS_MODE: 'ok' });
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Already on latest audited version: 1\.2\.16/);
@@ -164,24 +179,31 @@ for (const mode of ['abort', 'reserr', 'badjson']) {
 
 test('W2 c) 更新成功 → exit 0、更新完了', () => {
   const sb = setup('w2-ok', '1.2.14');
+  seedCache(sb, '1.2.16');
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /更新完了/);
+  assert.match(r.stdout, /1\.2\.14 → 1\.2\.16 に更新しました/);
 });
 
 test('W2 d) install 失敗 → exit 1、前のバージョンへの戻し方を表示', () => {
   const sb = setup('w2-install-fail', '1.2.14');
+  // 導入済みの 1.2.14 パッケージの同梱 pin も 1.2.14 に揃える(self-check の version 一致。監査済み版は別経路で取得するため影響しない)
+  const installedPinPath = path.join(stdPackageDir(sb.prefix), 'config', 'agy-verified-versions.json');
+  const installedPin = JSON.parse(fs.readFileSync(installedPinPath, 'utf8'));
+  installedPin.tag_name = '1.2.14';
+  fs.writeFileSync(installedPinPath, JSON.stringify(installedPin, null, 2) + '\n');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '1' });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /前のバージョンに戻すには/);
+  assert.match(r.stderr, /バージョンは 1\.2\.14 のままです/);
 });
 
 test('W2 e) npm の latest が監査済み版と不一致 → exit 0、更新しない', () => {
   const sb = setup('w2-mismatch', '1.2.14');
+  seedCache(sb, '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.14' });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /一致しないため、更新しません/);
+  assert.match(r.stdout, /更新を見送りました/);
   assert.deepEqual(readLog(sb.npmLog), ['view @bash0816/agy-termux@latest version']);
 });
 
@@ -204,6 +226,7 @@ test('W2 f) npm view の出力が不正 → exit 1、install はしない', () =
 // W3 URL 上書き: 有効な https の URL は取得先になり、不正な値は取得に到達させない
 test('W3 AGY_TERMUX_VERIFIED_URL で取得先を上書きできる', () => {
   const sb = setup('w3-ok', '1.2.16');
+  seedCache(sb, '1.2.16');
   const url = 'https://example.test/custom.json';
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', AGY_TERMUX_VERIFIED_URL: url });
   assert.equal(r.status, 0, r.stderr);
@@ -223,6 +246,7 @@ for (const bad of ['http://example.test/x', '', 'not a url']) {
 // W4 npm 呼び出し: 版固定で、@latest の install はしない
 test('W4 npm は view と版固定の install を1回ずつ呼ぶ', () => {
   const sb = setup('w4', '1.2.14');
+  seedCache(sb, '1.2.16');
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
@@ -235,6 +259,7 @@ test('W4 npm は view と版固定の install を1回ずつ呼ぶ', () => {
 // W5 symlink と prefix: 実体側の prefix を使い、推定できない場合は中止する
 test('W5 a) symlink 経由で起動しても、--prefix は実体側の prefix', () => {
   const sb = setup('w5a', '1.2.14');
+  seedCache(sb, '1.2.16');
   const linkDir = path.join(sb.dir, 'link');
   fs.mkdirSync(linkDir);
   const link = path.join(linkDir, 'agy.js');
@@ -265,7 +290,7 @@ test('W5 b) 標準外のレイアウトでは prefix を推定できず、更新
 
 // W6 --version: 通信も HOME への書き込みも行わない
 test('W6 --version は副作用ゼロ', () => {
-  const sb = setup('w6', '1.2.16');
+  const sb = setup('w6', '1.2.16', { consent: false });
   const r = runAgy(sb, ['--version'], { MOCK_HTTPS_MODE: 'tripwire' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, 'agy-termux 1.2.16\n');
@@ -276,8 +301,10 @@ test('W6 --version は副作用ゼロ', () => {
 
 // W7 通常の update でも、不要な書き込み(~/.agy-termux の作成)をしない
 test('W7 update は隔離 HOME に .agy-termux を作らない', () => {
-  const sb = setup('w7', '1.2.16');
+  // 同意ファイルなし: 非 TTY の update は同意待ちで exit 1 になり、その間に .agy-termux を作らない
+  const sb = setup('w7', '1.2.16', { consent: false });
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok' });
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /同意の入力がありません/);
   assert.equal(fs.existsSync(path.join(sb.home, '.agy-termux')), false);
 });
