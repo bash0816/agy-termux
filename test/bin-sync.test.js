@@ -185,6 +185,9 @@ test('F1 流れ1: 旧形式キャッシュがあっても update で版別ファ
   assert.match(r.stdout, /バイナリを 1\.3\.0 に更新しました/);
   assert.match(r.stdout, /^.*\.bin/m);
   assert.match(r.stdout, /^.*\.version/m);
+  assert.match(r.stdout, /rm -f -- /);
+  assert.ok(r.stdout.includes("'" + legacyBin + "'"));
+  assert.ok(r.stdout.includes("'" + legacyVersion + "'"));
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), true);
   assert.equal(countGets(sb), 1);
   assert.deepEqual(h.readLog(sb.npmLog), []);

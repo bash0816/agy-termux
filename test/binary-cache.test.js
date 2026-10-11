@@ -335,6 +335,7 @@ test('syncBinary: 手動削除候補があれば一覧・合計・案内を出�
     '  /virtual/cache/unverified/agy-1.2.16.va39 (7 bytes)',
     '[agy] 合計: 12 bytes',
     '[agy] 実行中の agy が無いことを確認してから rm で削除できます',
+    "[agy] 例: rm -f -- '/virtual/cache/agy.bin' '/virtual/cache/unverified/agy-1.2.16.va39'",
   ]);
 });
 

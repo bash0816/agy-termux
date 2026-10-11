@@ -122,9 +122,9 @@ For available commands, see the [Antigravity CLI documentation](https://antigrav
 
 バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーパッケージバージョンを1行で表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
 
-**Caching:** The downloaded binary is persisted locally at `~/.agy-termux/agy.va39` (patch-needed devices) or `~/.agy-termux/.bin` (other devices). Devices that don't need the VA39 patch now benefit from persistent caching — the binary is only re-downloaded if the upstream version changes or becomes corrupted.
+**Caching:** The downloaded binary is persisted locally in `~/.agy-termux`, in a file named for its version (`agy-<version>.va39` on patch-needed devices, `agy-<version>.bin` on other devices). It is only downloaded again when the version of your installed package changes, when the file is missing or damaged, or when you force a refresh. `agy update` fetches it ahead of time when it is missing, so the next `agy` start does not have to download it (this does not apply if the download consent was not given yet, or if the compatibility step is declined).
 
-キャッシング: ダウンロード済みバイナリは `~/.agy-termux/agy.va39`（パッチが必要なデバイス）または `~/.agy-termux/.bin`（その他のデバイス）にローカル保持されます。VA39 パッチが不要なデバイスも永続的なキャッシュの恩恵を受けるようになりました — バイナリは upstream バージョンの変更や破損時にのみ再ダウンロードされます。
+キャッシング: ダウンロード済みバイナリは `~/.agy-termux` に、版を含むファイル名(パッチが必要なデバイスは `agy-<版>.va39`、その他は `agy-<版>.bin`)でローカル保持されます。インストール済みパッケージの版が変わったとき、ファイルが無い/壊れているとき、強制更新したときにだけ再ダウンロードされます。`agy update` はファイルが無ければ事前に取得するため、次回の `agy` 起動で取得処理は走りません(ダウンロードの同意がまだの場合や、互換調整を拒否した場合を除きます)。
 
 **Force refresh:** Set `AGY_TERMUX_REFRESH=1` to force a clean re-download and re-verification of the binary, even if the cached version matches the upstream tag.
 
