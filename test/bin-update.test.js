@@ -12,6 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { DEFAULT_URL } = require('../lib/audited-update');
+const { makeFakeNpm } = require('./helpers/wiring');
 
 const REPO = path.resolve(__dirname, '..');
 const MOCK = path.join(__dirname, 'helpers', 'mock-https.js');
@@ -56,42 +57,9 @@ function makePackage(pkgDir, version) {
   return pkgDir;
 }
 
-// 偽 npm(Node スクリプト)を <dir>/fakebin/npm に作る
-// 引数は NPM_LOG に1行ずつ追記する。view は MOCK_NPM_VIEW を出力して MOCK_NPM_VIEW_EXIT で終了、
-// install は MOCK_NPM_INSTALL_EXIT で終了する。成功時に FAKE_NPM_NEW_PKG があれば、
-// --prefix の標準位置をそのパッケージで差し替える(npm が新しい版を入れた状況の再現)
+// 偽 npm は配線ヘルパーの makeFakeNpm を使う(<dir>/fakebin/npm を作り、fakebin のパスを返す)
 function makeFakeBin(dir) {
-  const bin = path.join(dir, 'fakebin');
-  fs.mkdirSync(bin, { recursive: true });
-  // shebang は絶対パス。Termux/Android には /usr/bin/env が無く、env を最小にすると実行できないため
-  const script = [
-    '#!' + process.execPath,
-    "'use strict';",
-    "const fs = require('node:fs');",
-    "const path = require('node:path');",
-    'const args = process.argv.slice(2);',
-    "if (process.env.NPM_LOG) fs.appendFileSync(process.env.NPM_LOG, args.join(' ') + '\\n');",
-    "if (args[0] === 'view') {",
-    "  process.stdout.write((process.env.MOCK_NPM_VIEW ?? '') + '\\n');",
-    "  process.exit(Number(process.env.MOCK_NPM_VIEW_EXIT || 0));",
-    '}',
-    "if (args[0] === 'install') {",
-    '  const code = Number(process.env.MOCK_NPM_INSTALL_EXIT || 0);',
-    '  if (code === 0 && process.env.FAKE_NPM_NEW_PKG) {',
-    "    const p = args[args.indexOf('--prefix') + 1];",
-    "    const dest = path.join(p, 'lib', 'node_modules', '@bash0816', 'agy-termux');",
-    '    fs.rmSync(dest, { recursive: true, force: true });',
-    '    fs.cpSync(process.env.FAKE_NPM_NEW_PKG, dest, { recursive: true });',
-    '  }',
-    '  process.exit(code);',
-    '}',
-    'process.exit(0);',
-    '',
-  ].join('\n');
-  const npm = path.join(bin, 'npm');
-  fs.writeFileSync(npm, script);
-  fs.chmodSync(npm, 0o755);
-  return bin;
+  return makeFakeNpm(dir);
 }
 
 // テストごとの隔離環境。標準レイアウトのパッケージを version で置く
@@ -99,6 +67,9 @@ function setup(name, version) {
   const dir = newDir(name);
   const prefix = path.join(dir, 'prefix');
   const pkgDir = makePackage(stdPackageDir(prefix), version);
+  const agyLink = path.join(prefix, 'bin', 'agy');
+  fs.mkdirSync(path.dirname(agyLink), { recursive: true });
+  fs.symlinkSync(path.join(pkgDir, 'bin', 'agy.js'), agyLink);
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
   return {
