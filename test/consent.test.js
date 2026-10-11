@@ -373,6 +373,59 @@ test('ask: 回答が無いまま close（EOF）したら null', async () => {
   }
 });
 
+test('ask: TTY で EOF（回答なしで close）なら、質問の後に改行がちょうど 1 回出てから null', async () => {
+  const dir = makeTmpDir();
+  try {
+    // 実 readline と同じく、質問文は output（stderr）へ書かれてから close される
+    let stderrRef;
+    const { c, stderr } = build(dir, {
+      reply: (rl, q) =>
+        setImmediate(() => {
+          stderrRef.write(q);
+          rl.close();
+        }),
+    });
+    stderrRef = stderr;
+    assert.strictEqual(await c.ask('Q? '), null);
+    assert.strictEqual(stderr.text(), 'Q? \n');
+    assert.strictEqual(stderr.text().split('\n').length - 1, 1);
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ask: TTY で通常の回答（y）なら追加の改行は出ない', async () => {
+  const dir = makeTmpDir();
+  try {
+    let stderrRef;
+    const { c, stderr } = build(dir, {
+      reply: (rl, q, cb) =>
+        setImmediate(() => {
+          stderrRef.write(q);
+          cb('y');
+        }),
+    });
+    stderrRef = stderr;
+    assert.strictEqual(await c.ask('Q? '), 'y');
+    assert.strictEqual(stderr.text(), 'Q? ');
+    assert.strictEqual(stderr.text().includes('\n'), false);
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ask: 非 TTY では質問も改行も stderr に出さない', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, stderr, readline } = build(dir, { isTTY: false, reply: answerWith('y') });
+    assert.strictEqual(await c.ask('Q? '), null);
+    assert.strictEqual(readline.instances.length, 0);
+    assert.strictEqual(stderr.text(), '');
+  } finally {
+    rmTmp(dir);
+  }
+});
+
 test('ask: setRawMode は呼ばれない', async () => {
   const dir = makeTmpDir();
   try {
