@@ -408,11 +408,11 @@ test('runUpdate', async (t) => {
   });
 
   // U2: 現在版が監査済み版より新しい
-  await t.test('U2 現在版が監査済み版より新しければ code 0 を返し、監査済みの最新を併記する', async () => {
+  await t.test('U2 現在版が監査済み版より新しければ code 0 を返し、更新しない旨を1行で表示する', async () => {
     const { deps, calls, out } = makeDeps({ pkgVersion: '1.3.0' });
     assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.3.0', to: '1.2.16', aud: '1.2.16', notice: null });
-    assertIncludes(out, 'Already on latest audited version: 1.3.0');
-    assertIncludes(out, '監査済みの最新は 1.2.16');
+    assertIncludes(out, '使用中の 1.3.0 は、公開されている監査済み版 (1.2.16) より新しいため、更新はしません(ダウングレードもしません)');
+    assert.equal(out.length, 1);
     assert.equal(calls.npmViewLatest, 0);
   });
 
@@ -465,8 +465,8 @@ test('runUpdate', async (t) => {
       fetchAudited: () => Promise.resolve('1.2.14'),
     });
     assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.16', to: '1.2.14', aud: '1.2.14', notice: null });
-    assertIncludes(out, 'Already on latest audited version: 1.2.16');
-    assertIncludes(out, '監査済みの最新は 1.2.14');
+    assertIncludes(out, '使用中の 1.2.16 は、公開されている監査済み版 (1.2.14) より新しいため、更新はしません(ダウングレードもしません)');
+    assert.equal(out.length, 1);
     assert.equal(calls.npmViewLatest, 0);
     assert.equal(calls.runInstall.length, 0);
   });

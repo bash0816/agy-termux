@@ -361,3 +361,26 @@ test('(8e) npmViewLatest の reason が timeout 以外ならそのまま原因�
   assert.equal(r.code, 1);
   assert.ok(t.errLines.includes('[agy] registry の確認に失敗しました(npm ERR! boom)。' + RETRY_GUIDE), t.errLines.join(' | '));
 });
+
+// (9a) 使用中の版が監査済み版より新しい: 1行だけ表示し、npm も preflight も呼ばない
+test('(9a) 使用中 1.3.0 > 監査済み 1.2.16 では1行だけ表示し、npm・preflight を呼ばず code 0', async () => {
+  const t = setup({ pkgVersion: '1.3.0', fetchAudited: async () => '1.2.16' });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 0);
+  assert.equal(r.installed, false);
+  assert.deepEqual(t.outLines, ['[agy] 使用中の 1.3.0 は、公開されている監査済み版 (1.2.16) より新しいため、更新はしません(ダウングレードもしません)']);
+  assert.ok(!t.outLines.some((l) => l.includes('Already on latest')));
+  assert.ok(!t.outLines.some((l) => l.includes('監査済みの最新は')));
+  assert.equal(t.calls.npm, 0);
+  assert.equal(t.calls.preflight, 0);
+  assert.equal(t.calls.install.length, 0);
+});
+
+// (9b) 使用中の版と監査済み版が同じ: 従来どおり1行だけ表示する
+test('(9b) 使用中 1.2.16 == 監査済み 1.2.16 では「Already on latest audited version」の1行だけ表示する', async () => {
+  const t = setup({ pkgVersion: '1.2.16', fetchAudited: async () => '1.2.16' });
+  const r = await runUpdate(t.deps);
+  assert.equal(r.code, 0);
+  assert.deepEqual(t.outLines, ['[agy] Already on latest audited version: 1.2.16']);
+  assert.equal(t.calls.npm, 0);
+});

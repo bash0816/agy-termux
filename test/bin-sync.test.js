@@ -181,7 +181,8 @@ test('F1 流れ1: 旧形式キャッシュがあっても update で版別ファ
 
   const r = update(sb);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Already on latest audited version: 1\.3\.0/);
+  assert.match(r.stdout, /使用中の 1\.3\.0 は、公開されている監査済み版 \(1\.2\.16\) より新しいため、更新はしません\(ダウングレードもしません\)/);
+  assert.doesNotMatch(r.stdout, /Already on latest audited version/);
   assert.match(r.stdout, /バイナリを 1\.3\.0 に取得しました/);
   // 旧形式は mtime が直前に作られたばかり(10分以内)なので掃除の対象外。削除もされず、rm の案内も出ない
   assert.equal(fs.existsSync(legacyBin), true);
