@@ -399,27 +399,32 @@ test('fetchAuditedVersion', async (t) => {
 
 test('runUpdate', async (t) => {
   // U1: 既に監査済みの最新
-  await t.test('U1 現在版と監査済み版が同じなら何もせず 0 を返す', async () => {
+  await t.test('U1 現在版と監査済み版が同じなら何もせず code 0 を返す', async () => {
     const { deps, calls, out } = makeDeps({ pkgVersion: '1.2.16' });
-    assert.equal(await au.runUpdate(deps), 0);
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, aud: '1.2.16' });
     assertIncludes(out, 'Already on latest audited version: 1.2.16');
     assert.equal(calls.npmViewLatest, 0);
     assert.equal(calls.runInstall.length, 0);
   });
 
   // U2: 現在版が監査済み版より新しい
-  await t.test('U2 現在版が監査済み版より新しければ 0 を返し、監査済みの最新を併記する', async () => {
+  await t.test('U2 現在版が監査済み版より新しければ code 0 を返し、監査済みの最新を併記する', async () => {
     const { deps, calls, out } = makeDeps({ pkgVersion: '1.3.0' });
-    assert.equal(await au.runUpdate(deps), 0);
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, aud: '1.2.16' });
     assertIncludes(out, 'Already on latest audited version: 1.3.0');
     assertIncludes(out, '監査済みの最新は 1.2.16');
     assert.equal(calls.npmViewLatest, 0);
   });
 
   // U3: 正常な更新
-  await t.test('U3 監査済み版と npm の latest が一致すれば prefix を指定して更新する', async () => {
+  await t.test('U3 監査済み版と npm の latest が一致すれば prefix を指定して更新し、installed を true にする', async () => {
     const { deps, calls, out } = makeDeps({ pkgVersion: '1.2.14' });
-    assert.equal(await au.runUpdate(deps), 0);
+    assert.deepEqual(await au.runUpdate(deps), {
+      code: 0,
+      installed: true,
+      pkgDir: '/p/lib/node_modules/@bash0816/agy-termux',
+      aud: '1.2.16',
+    });
     assert.deepEqual(calls.runInstall, [['/p', '1.2.16']]);
     assertIncludes(out, '更新完了');
   });
@@ -430,7 +435,7 @@ test('runUpdate', async (t) => {
       pkgVersion: '1.2.14',
       npmViewLatest: () => ({ ok: true, version: '1.2.14' }),
     });
-    assert.equal(await au.runUpdate(deps), 0);
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, aud: '1.2.16' });
     assertIncludes(out, '一致しないため、更新しません');
     assert.equal(calls.runInstall.length, 0);
   });
@@ -442,19 +447,19 @@ test('runUpdate', async (t) => {
         pkgVersion: '1.2.14',
         npmViewLatest: () => ({ ok: true, version: latest }),
       });
-      assert.equal(await au.runUpdate(deps), 0, `latest: ${latest}`);
+      assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, aud: '1.2.16' }, `latest: ${latest}`);
       assertIncludes(out, '一致しないため、更新しません');
       assert.equal(calls.runInstall.length, 0, `latest: ${latest}`);
     }
   });
 
   // U6: 監査済み版が現在版より古い(自動ダウングレードなし)
-  await t.test('U6 監査済み版が現在版より古くても自動ダウングレードせず 0 を返す', async () => {
+  await t.test('U6 監査済み版が現在版より古くても自動ダウングレードせず code 0 を返す', async () => {
     const { deps, calls, out } = makeDeps({
       pkgVersion: '1.2.16',
       fetchAudited: () => Promise.resolve('1.2.14'),
     });
-    assert.equal(await au.runUpdate(deps), 0);
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, aud: '1.2.14' });
     assertIncludes(out, 'Already on latest audited version: 1.2.16');
     assertIncludes(out, '監査済みの最新は 1.2.14');
     assert.equal(calls.npmViewLatest, 0);
@@ -462,70 +467,75 @@ test('runUpdate', async (t) => {
   });
 
   // U7: 監査済み版の取得に失敗
-  await t.test('U7 監査済み版の取得に失敗したら 1 を返し、npm にも問い合わせない', async () => {
+  await t.test('U7 監査済み版の取得に失敗したら code 1 を返し、npm にも問い合わせない', async () => {
     const { deps, calls, err } = makeDeps({
       fetchAudited: () => Promise.reject(new Error('net down')),
     });
-    assert.equal(await au.runUpdate(deps), 1);
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, aud: null });
     assertIncludes(err, '監査済み版の確認に失敗しました');
     assert.equal(calls.npmViewLatest, 0);
     assert.equal(calls.runInstall.length, 0);
   });
 
   // U8: 'v' 付きタグ由来の監査済み版
-  await t.test('U8 正規化済みの監査済み版を使って更新できる', async () => {
+  await t.test('U8 正規化済みの監査済み版を使って更新でき、aud は正規化後の値を返す', async () => {
     const { deps, calls, out } = makeDeps({
       pkgVersion: '1.2.14',
       fetchAudited: () => Promise.resolve(au.normalizeTag('v1.2.16')),
     });
-    assert.equal(await au.runUpdate(deps), 0);
+    assert.deepEqual(await au.runUpdate(deps), {
+      code: 0,
+      installed: true,
+      pkgDir: '/p/lib/node_modules/@bash0816/agy-termux',
+      aud: '1.2.16',
+    });
     assert.deepEqual(calls.runInstall, [['/p', '1.2.16']]);
     assertIncludes(out, '更新完了');
   });
 
   // U9: npm への問い合わせに失敗
-  await t.test('U9 npm の問い合わせに失敗したら 1 を返し、更新しない', async () => {
+  await t.test('U9 npm の問い合わせに失敗したら code 1 を返し、更新しない', async () => {
     const { deps, calls, err } = makeDeps({
       npmViewLatest: () => ({ ok: false, reason: 'x' }),
     });
-    assert.equal(await au.runUpdate(deps), 1);
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, aud: '1.2.16' });
     assertIncludes(err, 'registry の確認に失敗しました');
     assert.equal(calls.runInstall.length, 0);
   });
 
   // U10: prefix を検出できない
-  await t.test('U10 prefix を検出できなければ 1 を返し、手動更新の案内を出す', async () => {
+  await t.test('U10 prefix を検出できなければ code 1 を返し、手動更新の案内を出す', async () => {
     const { deps, calls, err } = makeDeps({
       detectPrefix: () => null,
     });
-    assert.equal(await au.runUpdate(deps), 1);
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, aud: '1.2.16' });
     assertIncludes(err, '手動で更新する');
     assertIncludes(err, '@bash0816/agy-termux@1.2.16');
     assert.equal(calls.runInstall.length, 0);
   });
 
   // U11: 更新コマンドの失敗
-  await t.test('U11 更新に失敗したら 1 を返し、前の版に戻す手順を案内する', async () => {
+  await t.test('U11 更新に失敗したら code 1 を返し、installed は false のまま前の版に戻す手順を案内する', async () => {
     const { deps, err } = makeDeps({
       pkgVersion: '1.2.14',
       runInstall: () => ({ ok: false }),
     });
-    assert.equal(await au.runUpdate(deps), 1);
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, aud: '1.2.16' });
     assertIncludes(err, '前のバージョンに戻すには: npm install -g --prefix /p @bash0816/agy-termux@1.2.14');
   });
 
   // U12: 入力の不正
-  await t.test('U12 現在版の形式が不正なら 1 を返し、取得に進まない', async () => {
+  await t.test('U12 現在版の形式が不正なら code 1 を返し、取得に進まない', async () => {
     const { deps, calls, err } = makeDeps({ pkgVersion: 'abc' });
-    assert.equal(await au.runUpdate(deps), 1);
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, aud: null });
     assert.equal(calls.fetchAudited.length, 0);
     assertIncludes(err, 'バージョン形式を比較できません');
   });
 
-  await t.test('U12 AGY_TERMUX_VERIFIED_URL が不正(空文字を含む)なら 1 を返し、取得に進まない', async () => {
+  await t.test('U12 AGY_TERMUX_VERIFIED_URL が不正(空文字を含む)なら code 1 を返し、取得に進まない', async () => {
     for (const urlError of ['http://x', '']) {
       const { deps, calls, err } = makeDeps({ urlError });
-      assert.equal(await au.runUpdate(deps), 1, `urlError: ${JSON.stringify(urlError)}`);
+      assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, aud: null }, `urlError: ${JSON.stringify(urlError)}`);
       assertIncludes(err, 'AGY_TERMUX_VERIFIED_URL が不正');
       assert.equal(calls.fetchAudited.length, 0);
     }

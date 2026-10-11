@@ -30,13 +30,17 @@ async function gateDownload() {
   if (_ans1 === 'n' || _ans1 === 'no') { console.error('キャンセルしました。'); process.exit(0); }
   saveConsent('download');
 }
-async function gateCompat() {
-  if (hasConsent('compat')) return;
+async function gateCompat({ exitOnDecline = true } = {}) {
+  if (hasConsent('compat')) return true;
   console.error('\n[agy] このデバイスでの起動には互換性のための技術的な調整が必要です。');
   console.error('      調整はこのデバイス上でのみ行われ、元のファイルは変更されません。\n');
   const _ans2 = await ask('続けますか？ [Y/n] ');
-  if (_ans2 === 'n' || _ans2 === 'no') { console.error('キャンセルしました。'); process.exit(0); }
+  if (_ans2 === 'n' || _ans2 === 'no') {
+    if (exitOnDecline) { console.error('キャンセルしました。'); process.exit(0); }
+    return false;
+  }
   saveConsent('compat');
+  return true;
 }
 // bin/agy.js は "<prefix>/lib/node_modules/@bash0816/agy-termux/bin/agy.js" に配置される
 // (npmのグローバルインストールの標準レイアウト)。ここから4階層上がprefixになる。
@@ -57,13 +61,52 @@ function detectOwnPrefix() {
   return computePrefixFromRealFilePath(realFile);
 }
 
-function needsPatch() {
-  try {
-    const maps = fs.readFileSync('/proc/self/maps','utf8').trim().split('\n');
-    const highest = Math.max(...maps.map(l => parseInt(l.split('-')[0],16)));
-    return highest.toString(2).length <= 39;
-  } catch { return true; }
+// バイナリ同期(lib/binary-cache.js の syncBinary)に渡す依存を組み立てる
+// require は呼び出し時に行い、--version の経路では読み込まれないようにする
+async function buildSyncDeps() {
+  const bc = require('../lib/binary-cache');
+  const { fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
+  const meta = await fetchPinnedMeta();
+  const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
+  const isPatch = bc.needsPatch();
+  // プロセス生存確認。ESRCH のときだけ「存在しない」と判定し、それ以外は unknown として残す
+  const killPid = (pid) => {
+    try { process.kill(pid, 0); return 'alive'; } catch (e) { return e && e.code === 'ESRCH' ? 'esrch' : 'unknown'; }
+  };
+  return {
+    meta,
+    dir: INSTALL_DIR,
+    isPatch,
+    hasConsent,
+    fsDeps: fs,
+    loaderExists: () => fs.existsSync(path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1')),
+    confirmCompat: () => gateCompat({ exitOnDecline: false }),
+    install: async (file) => {
+      process.stderr.write(`[agy] ${meta.tagName} をダウンロード中...\n`);
+      await bc.installBinary({
+        download: downloadBinary,
+        patch: (buf) => require('../lib/patcher').applyVA39Patch(buf),
+        fs,
+        pid: process.pid,
+        randomHex: () => require('crypto').randomBytes(4).toString('hex'),
+      }, { meta, isPatch, file });
+    },
+    prune: (pinTag) => bc.prune({
+      readdirSync: fs.readdirSync,
+      statSync: fs.statSync,
+      unlinkSync: fs.unlinkSync,
+      killPid,
+      now: Date.now,
+    }, { dir: INSTALL_DIR, pinTag }),
+    listManualCleanup: () => bc.listManualCleanup({
+      readdirSync: fs.readdirSync,
+      statSync: fs.statSync,
+    }, { dir: INSTALL_DIR }),
+    out: console.log,
+    err: console.error,
+  };
 }
+
 async function main() {
   const args = process.argv.slice(2);
 
@@ -75,15 +118,17 @@ async function main() {
     process.exit(0);
   }
 
-  // Legacy cleanup: remove leftover .bin.tmp file from old naming scheme
-  fs.rmSync(path.join(INSTALL_DIR, '.bin.tmp'), { force: true });
-
   if (['update','--update','upgrade'].includes(args[0])) {
     // 判定ロジックは lib/audited-update.js に分離(監査済み版を基準にする)
     const { spawnSync } = require('child_process');
+    // 更新後の新しいコードから呼ばれる同期専用の経路。更新判定は行わない
+    if (args[1] === '--sync-binary-only') {
+      const res = await require('../lib/binary-cache').syncBinary(await buildSyncDeps());
+      process.exit(res.status === 'error' ? 1 : 0);
+    }
     const { runUpdate, createDeps } = require('../lib/audited-update');
     const pkg = require('../package.json');
-    const code = await runUpdate(createDeps({
+    const r = await runUpdate(createDeps({
       spawnSync,
       realpathSync: fs.realpathSync,
       filename: __filename,
@@ -94,7 +139,33 @@ async function main() {
       computePrefix: computePrefixFromRealFilePath,
       pkgVersion: pkg.version,
     }));
-    process.exit(code);
+    if (r.code !== 0) process.exit(r.code);
+    // 版が変わっていない(install されなかった)場合は、現在のコードでバイナリだけ同期する
+    if (!r.installed) {
+      const res = await require('../lib/binary-cache').syncBinary(await buildSyncDeps());
+      process.exit(res.status === 'error' ? 1 : 0);
+    }
+    // 更新後の package.json をディスクから読み直す(require のキャッシュは使わない)
+    let newVer;
+    try {
+      newVer = JSON.parse(fs.readFileSync(path.join(r.pkgDir, 'package.json'), 'utf8')).version;
+    } catch { newVer = undefined; }
+    if (newVer !== r.aud) {
+      console.error('[agy] 更新後のパッケージの版が想定と異なります(期待: ' + r.aud + '、実際: ' + newVer + ')。');
+      process.exit(1);
+    }
+    // 旧版には binary-cache.js が無いので、同期は行わず案内だけ出す
+    if (!fs.existsSync(path.join(r.pkgDir, 'lib', 'binary-cache.js'))) {
+      console.error('[agy] 警告: パッケージは ' + r.aud + ' に更新済みですが、このバージョンにはバイナリ同期機能が含まれていないため、バイナリは同期されていません。agy の版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください。');
+      process.exit(0);
+    }
+    // 新しいコードに同期を任せる(子プロセスの環境は親から継承される)
+    const c = spawnSync(process.execPath, [path.join(r.pkgDir, 'bin', 'agy.js'), 'update', '--sync-binary-only'], { stdio: 'inherit' });
+    if (c.error || c.signal || c.status !== 0) {
+      console.error('[agy] パッケージは ' + r.aud + ' に更新済みですが、バイナリの取得に失敗しました。ネットワークを確認して agy update を再実行するか、agy を起動してください(起動時にも取得されます)。');
+      process.exit(1);
+    }
+    process.exit(0);
   }
   const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
   const loader = path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
@@ -105,10 +176,9 @@ async function main() {
   await gateDownload();
 
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
+  const bc = require('../lib/binary-cache');
   const glibcLib = path.join(prefix, 'glibc', 'lib');
-  const isPatch = needsPatch();
-  const tmp = isPatch ? path.join(INSTALL_DIR, 'agy.va39') : path.join(INSTALL_DIR, '.bin');
-  const versionFile = path.join(INSTALL_DIR, '.version');
+  const isPatch = bc.needsPatch();
 
   const useLatest = process.env.AGY_TERMUX_FORCE_LATEST === '1';
   const forceRefresh = process.env.AGY_TERMUX_REFRESH === '1';
@@ -118,46 +188,22 @@ async function main() {
   process.stderr.write(useLatest ? '[agy] 最新リリース情報を取得中...\n' : '[agy] 検証済みリリース情報を取得中...\n');
   const { tagName, downloadUrl, sha256Tar, sha256Binary } = useLatest ? await fetchLatestMeta() : await fetchPinnedMeta();
 
-  const cachedTag = (() => { try { return fs.readFileSync(versionFile, 'utf8').trim(); } catch { return ''; } })();
-
-  // キャッシュ済みバイナリの最低限の健全性チェック（サイズ + ELFマジックバイト）。
-  // 壊れている場合は再ダウンロードさせる（cacheHit=false扱い）。
-  function isCachedBinaryValid() {
-    let fd;
-    try {
-      const stat = fs.statSync(tmp);
-      if (stat.size < 10 * 1024 * 1024) return false;
-      fd = fs.openSync(tmp, 'r');
-      const head = Buffer.alloc(4);
-      fs.readSync(fd, head, 0, 4, 0);
-      return head[0] === 0x7F && head.toString('ascii', 1, 4) === 'ELF';
-    } catch {
-      return false;
-    } finally {
-      if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
-    }
-  }
-
-  let cacheHit = !forceRefresh && tagName === cachedTag && fs.existsSync(tmp) && isCachedBinaryValid();
-  if (!cacheHit) {
-    // 壊れたキャッシュ・古いキャッシュを確実に一掃してから再取得する
-    fs.rmSync(tmp, { force: true });
-    fs.rmSync(versionFile, { force: true });
-  }
+  // 版付きのキャッシュ先(検証済みは agy-<tag>.<ext>、FORCE_LATEST は unverified/ 配下)
+  const { file: tmp } = bc.cachePaths({ dir: INSTALL_DIR, tag: tagName, isPatch, unverified: useLatest });
+  // キャッシュの健全性チェック(サイズ + ELFマジックバイト)。壊れている場合は再取得させる
+  const cacheHit = !forceRefresh && bc.isCacheValid(fs, tmp);
 
   if (!cacheHit) {
     if (isPatch) await gateCompat();
     process.stderr.write(`[agy] ${tagName} をダウンロード中...\n`);
-    const binBuf = await downloadBinary(downloadUrl, sha256Tar, sha256Binary);
-    if (isPatch) {
-      const { applyVA39Patch } = require('../lib/patcher');
-      applyVA39Patch(binBuf);
-    }
-    fs.mkdirSync(INSTALL_DIR, { recursive: true });
-    const tmpWrite = tmp + '.tmp';
-    fs.writeFileSync(tmpWrite, binBuf, { mode: 0o700 });
-    fs.renameSync(tmpWrite, tmp);
-    fs.writeFileSync(versionFile, tagName);
+    // 取得前に既存キャッシュは消さない。配置は一時ファイル経由の rename で行う
+    await bc.installBinary({
+      download: downloadBinary,
+      patch: (buf) => require('../lib/patcher').applyVA39Patch(buf),
+      fs,
+      pid: process.pid,
+      randomHex: () => require('crypto').randomBytes(4).toString('hex'),
+    }, { meta: { tagName, downloadUrl, sha256Tar, sha256Binary }, isPatch, file: tmp });
   }
 
   const { spawn } = require('child_process');
@@ -172,10 +218,7 @@ async function main() {
   child.on('exit', (code, signal) => {
     process.exit(signal ? 1 : (code ?? 0));
   });
-  // loader自体の起動に失敗した場合（execがそもそも失敗）はキャッシュを破棄して次回再取得させる
   child.on('error', err => {
-    fs.rmSync(tmp, { force: true });
-    fs.rmSync(versionFile, { force: true });
     console.error(`[agy] ${err.message}`);
     process.exit(1);
   });

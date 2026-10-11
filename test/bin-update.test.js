@@ -58,7 +58,8 @@ function makePackage(pkgDir, version) {
 
 // 偽 npm(Node スクリプト)を <dir>/fakebin/npm に作る
 // 引数は NPM_LOG に1行ずつ追記する。view は MOCK_NPM_VIEW を出力して MOCK_NPM_VIEW_EXIT で終了、
-// install は MOCK_NPM_INSTALL_EXIT で終了する
+// install は MOCK_NPM_INSTALL_EXIT で終了する。成功時に FAKE_NPM_NEW_PKG があれば、
+// --prefix の標準位置をそのパッケージで差し替える(npm が新しい版を入れた状況の再現)
 function makeFakeBin(dir) {
   const bin = path.join(dir, 'fakebin');
   fs.mkdirSync(bin, { recursive: true });
@@ -67,13 +68,23 @@ function makeFakeBin(dir) {
     '#!' + process.execPath,
     "'use strict';",
     "const fs = require('node:fs');",
+    "const path = require('node:path');",
     'const args = process.argv.slice(2);',
     "if (process.env.NPM_LOG) fs.appendFileSync(process.env.NPM_LOG, args.join(' ') + '\\n');",
     "if (args[0] === 'view') {",
     "  process.stdout.write((process.env.MOCK_NPM_VIEW ?? '') + '\\n');",
     "  process.exit(Number(process.env.MOCK_NPM_VIEW_EXIT || 0));",
     '}',
-    "if (args[0] === 'install') process.exit(Number(process.env.MOCK_NPM_INSTALL_EXIT || 0));",
+    "if (args[0] === 'install') {",
+    '  const code = Number(process.env.MOCK_NPM_INSTALL_EXIT || 0);',
+    '  if (code === 0 && process.env.FAKE_NPM_NEW_PKG) {',
+    "    const p = args[args.indexOf('--prefix') + 1];",
+    "    const dest = path.join(p, 'lib', 'node_modules', '@bash0816', 'agy-termux');",
+    '    fs.rmSync(dest, { recursive: true, force: true });',
+    '    fs.cpSync(process.env.FAKE_NPM_NEW_PKG, dest, { recursive: true });',
+    '  }',
+    '  process.exit(code);',
+    '}',
     'process.exit(0);',
     '',
   ].join('\n');
@@ -182,7 +193,8 @@ for (const mode of ['abort', 'reserr', 'badjson']) {
 
 test('W2 c) 更新成功 → exit 0、更新完了', () => {
   const sb = setup('w2-ok', '1.2.14');
-  const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0' });
+  const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
+  const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /更新完了/);
 });
@@ -240,7 +252,8 @@ for (const bad of ['http://example.test/x', '', 'not a url']) {
 // W4 npm 呼び出し: 版固定で、@latest の install はしない
 test('W4 npm は view と版固定の install を1回ずつ呼ぶ', () => {
   const sb = setup('w4', '1.2.14');
-  const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0' });
+  const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
+  const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(readLog(sb.npmLog), [
     'view @bash0816/agy-termux@latest version',
@@ -255,7 +268,8 @@ test('W5 a) symlink 経由で起動しても、--prefix は実体側の prefix',
   fs.mkdirSync(linkDir);
   const link = path.join(linkDir, 'agy.js');
   fs.symlinkSync(sb.agy, link);
-  const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0' }, link);
+  const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
+  const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg }, link);
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(readLog(sb.npmLog), [
     'view @bash0816/agy-termux@latest version',
