@@ -7,6 +7,12 @@
 //   MOCK_HTTPS_BODY  ok 系で返す本文(既定は {"tag_name":"1.2.16"})
 //   MOCK_HTTPS_LOG   呼び出しを1行ずつ追記するファイル(未指定なら記録しない)
 //   MOCK_ROUTES      URL ごとの応答を定めた JSON ファイル(指定時は MOCK_HTTPS_MODE より優先。tripwire を除く)
+//   MOCK_SCRIPT      JSON 文字列またはファイルパス。{ "URL": { status, contentLength, location, chunks:[{delayMs,bytes|text}], stop } }。
+//                    contentLength=true はチャンク合計長、false/省略/null はヘッダなし、それ以外は明示値。
+//                    location は Location ヘッダ。リダイレクト鎖は遷移先 URL も定義する。
+//                    stop=true は全チャンク後に end/close を送らない。stopAfter は 0 始まりの送信後停止位置。bytes は base64。
+//                    MOCK_DESTROY_DELAYED=fire は response.destroy() 後も遅延チャンクを発火(既定 suppress)。
+//                    response.destroy() は MOCK_HTTPS_LOG に DESTROY <URL> として記録する。
 //   MOCK_VA_BITS     '39' / '48' のとき /proc/self/maps を 1 行の偽物にする(未指定なら素通し)
 //   MOCK_KEEP_PRELOAD=1  ld-linux の起動時に LD_PRELOAD を消さない(既定は消す)
 
@@ -72,6 +78,58 @@ const CORRUPT_BODY = Buffer.from('corrupt-body-not-a-tarball\n');
 
 function loadRoutes() {
   return JSON.parse(fs.readFileSync(process.env.MOCK_ROUTES, 'utf8'));
+}
+
+function loadScript() {
+  const spec = process.env.MOCK_SCRIPT;
+  if (!spec) return null;
+  try { return JSON.parse(spec); } catch (stringError) {
+    try { return JSON.parse(fs.readFileSync(spec, 'utf8')); } catch (fileError) {
+      throw new Error('MOCK_SCRIPT は JSON 文字列またはファイルパスで指定してください: ' + fileError.message, { cause: stringError });
+    }
+  }
+}
+
+function serveScript(req, cb, url, script) {
+  const route = script[url];
+  if (!route) { req.emit('error', new Error('mock network error: no script for ' + url)); return; }
+  const res = new EventEmitter();
+  res.statusCode = route.status ?? 200;
+  res.headers = {};
+  const chunks = route.chunks || [];
+  const length = route.contentLength === true
+    ? chunks.reduce((n, c) => n + Buffer.byteLength(c.text ?? (c.bytes !== undefined ? Buffer.from(c.bytes, 'base64') : '')), 0)
+    : route.contentLength;
+  if (length !== undefined && length !== null && length !== false) res.headers['content-length'] = String(length);
+  if (route.location !== undefined) res.headers.location = route.location;
+  res.complete = false;
+  res.resume = () => {};
+  let encoding = null;
+  let destroyed = false;
+  const timers = [];
+  res.setEncoding = (enc) => { encoding = enc; };
+  res.destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    log('DESTROY ' + url);
+    if (process.env.MOCK_DESTROY_DELAYED !== 'fire') timers.forEach(clearTimeout);
+  };
+  if (cb) cb(res);
+  chunks.forEach((chunk, index) => {
+    timers.push(setTimeout(() => {
+      if (destroyed && process.env.MOCK_DESTROY_DELAYED !== 'fire') return;
+      if (route.stopAfter !== undefined && index > route.stopAfter) return;
+      const data = chunk.bytes !== undefined ? Buffer.from(chunk.bytes, 'base64') : Buffer.from(chunk.text ?? '', 'utf8');
+      if (data.length) res.emit('data', encoding ? data.toString(encoding) : data);
+      if (index === chunks.length - 1 && !route.stop && route.stopAfter === undefined) {
+        res.complete = true; res.emit('end'); res.emit('close');
+      }
+    }, Math.max(0, Number(chunk.delayMs) || 0)));
+  });
+  if (!chunks.length && !route.stop) setImmediate(() => {
+    if (destroyed && process.env.MOCK_DESTROY_DELAYED !== 'fire') return;
+    res.complete = true; res.emit('end'); res.emit('close');
+  });
 }
 
 function routeBody(route) {
@@ -150,7 +208,7 @@ childProcess.spawn = function (...all) {
   return realSpawn.apply(this, all);
 };
 
-if (MODE === 'tripwire') {
+if (MODE === 'tripwire' && !process.env.MOCK_SCRIPT) {
   // 通信系の入口がひとつでも呼ばれたら、ログを残して失敗させる
   const trip = () => {
     log('NETWORK_CALLED');
@@ -169,6 +227,10 @@ if (MODE === 'tripwire') {
     const req = new EventEmitter();
     req.destroy = () => {};
     setImmediate(() => {
+      if (process.env.MOCK_SCRIPT) {
+        serveScript(req, cb, String(url), loadScript());
+        return;
+      }
       if (process.env.MOCK_ROUTES) {
         serveRoute(req, cb, url);
         return;
