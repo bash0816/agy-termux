@@ -75,6 +75,11 @@ function makePackage(pkgDir, version) {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   pkg.version = version;
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  // 検証済み pin(tag_name)を version に合わせる。他の項目は読んだ値のまま保持する
+  const pinPath = path.join(pkgDir, 'config', 'agy-verified-versions.json');
+  const pin = JSON.parse(fs.readFileSync(pinPath, 'utf8'));
+  pin.tag_name = version;
+  fs.writeFileSync(pinPath, JSON.stringify(pin, null, 2) + '\n');
   return pkgDir;
 }
 
@@ -126,6 +131,7 @@ function runAgy(sb, args, env = {}, agy = sb.agy) {
     env: {
       PATH: `${sb.fakeBin}:${process.env.PATH}`,
       HOME: sb.home,
+      PREFIX: sb.prefix,
       NPM_LOG: sb.npmLog,
       MOCK_HTTPS_LOG: sb.mockLog,
       // 偽の VA 幅を固定し、キャッシュ名を agy-<tag>.bin に決める(実機の差に依存しない)
