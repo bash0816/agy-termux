@@ -8,6 +8,7 @@ on:
       - 'config/**'
       - '!config/agy-candidate-version.json'
       - 'scripts/**'
+      - 'test/**'
       - 'package.json'
       - 'README.md'
       - 'NOTICE.md'
@@ -21,6 +22,7 @@ on:
       - 'config/**'
       - '!config/agy-candidate-version.json'
       - 'scripts/**'
+      - 'test/**'
       - 'package.json'
       - 'README.md'
       - 'NOTICE.md'
@@ -50,6 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -68,6 +72,14 @@ jobs:
           node --check scripts/promote-agy-candidate.js
           node --check scripts/prepare-local-test-build.js
           node --check scripts/verify-version-sync.js
+          node --check scripts/check-test-version-independence.js
+          node --check scripts/lib/test-run-check.js
+          node --check scripts/lib/test-run-copy.js
+          node --check scripts/lib/test-run-exec.js
+          node --check scripts/lib/test-run-verify.js
+
+      - name: Test suite
+        run: node scripts/check-test-version-independence.js
 
       - name: Publish preflight check
         run: |
