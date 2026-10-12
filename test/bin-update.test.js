@@ -192,6 +192,7 @@ test('W2 c) 更新成功 → exit 0、更新完了', () => {
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.match(r.stdout, /1\.2\.14 → 1\.2\.16 に更新しました/);
 });
 
@@ -212,6 +213,7 @@ test('W2 e) npm の latest が監査済み版と不一致 → exit 0、更新し
   seedCache(sb, '1.2.14');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.14' });
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.match(r.stdout, /更新を見送りました/);
   assert.deepEqual(readLog(sb.npmLog), ['view @bash0816/agy-termux@latest version']);
 });
@@ -259,6 +261,7 @@ test('W4 npm は view と版固定の install を1回ずつ呼ぶ', () => {
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.deepEqual(readLog(sb.npmLog), [
     'view @bash0816/agy-termux@latest version',
     'install -g --prefix ' + sb.prefix + ' @bash0816/agy-termux@1.2.16',
@@ -276,6 +279,7 @@ test('W5 a) symlink 経由で起動しても、--prefix は実体側の prefix',
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg }, link);
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.deepEqual(readLog(sb.npmLog), [
     'view @bash0816/agy-termux@latest version',
     'install -g --prefix ' + sb.prefix + ' @bash0816/agy-termux@1.2.16',
