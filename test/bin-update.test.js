@@ -54,6 +54,11 @@ function makePackage(pkgDir, version) {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   pkg.version = version;
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  // 検証済み pin(tag_name)を version に合わせる。他の項目は読んだ値のまま保持する
+  const pinPath = path.join(pkgDir, 'config', 'agy-verified-versions.json');
+  const pin = JSON.parse(fs.readFileSync(pinPath, 'utf8'));
+  pin.tag_name = version;
+  fs.writeFileSync(pinPath, JSON.stringify(pin, null, 2) + '\n');
   return pkgDir;
 }
 
@@ -95,6 +100,7 @@ function runAgy(sb, args, env = {}, agy = sb.agy) {
     env: {
       PATH: `${sb.fakeBin}:${process.env.PATH}`,
       HOME: sb.home,
+      PREFIX: sb.prefix,
       NPM_LOG: sb.npmLog,
       MOCK_HTTPS_LOG: sb.mockLog,
       // 偽の VA 幅を固定し、キャッシュ名を agy-<tag>.bin に決める(実機の差に依存しない)
@@ -186,6 +192,7 @@ test('W2 c) 更新成功 → exit 0、更新完了', () => {
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.match(r.stdout, /1\.2\.14 → 1\.2\.16 に更新しました/);
 });
 
@@ -203,9 +210,10 @@ test('W2 d) install 失敗 → exit 1、前のバージョンへの戻し方を�
 
 test('W2 e) npm の latest が監査済み版と不一致 → exit 0、更新しない', () => {
   const sb = setup('w2-mismatch', '1.2.14');
-  seedCache(sb, '1.2.16');
+  seedCache(sb, '1.2.14');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.14' });
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.match(r.stdout, /更新を見送りました/);
   assert.deepEqual(readLog(sb.npmLog), ['view @bash0816/agy-termux@latest version']);
 });
@@ -253,6 +261,7 @@ test('W4 npm は view と版固定の install を1回ずつ呼ぶ', () => {
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.deepEqual(readLog(sb.npmLog), [
     'view @bash0816/agy-termux@latest version',
     'install -g --prefix ' + sb.prefix + ' @bash0816/agy-termux@1.2.16',
@@ -270,6 +279,7 @@ test('W5 a) symlink 経由で起動しても、--prefix は実体側の prefix',
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg }, link);
   assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.deepEqual(readLog(sb.npmLog), [
     'view @bash0816/agy-termux@latest version',
     'install -g --prefix ' + sb.prefix + ' @bash0816/agy-termux@1.2.16',
