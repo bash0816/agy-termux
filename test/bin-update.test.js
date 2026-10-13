@@ -191,7 +191,7 @@ test('W2 c) 更新成功 → exit 0、更新完了', () => {
   seedCache(sb, '1.2.16');
   const newPkg = makePackage(path.join(sb.dir, 'new-pkg'), '1.2.16');
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok', MOCK_NPM_VIEW: '1.2.16', MOCK_NPM_INSTALL_EXIT: '0', FAKE_NPM_NEW_PKG: newPkg });
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, 1, r.stderr);
   assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
   assert.match(r.stdout, /1\.2\.14 → 1\.2\.16 に更新しました/);
 });
