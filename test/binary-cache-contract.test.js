@@ -231,7 +231,7 @@ test('syncBinary: キャッシュが有効なら current。出力は空', async 
   const r = await bc.syncBinary(deps);
   assert.deepEqual(r, {
     status: 'current', detail: '', tag: '1.2.16',
-    file: path.join('/virtual/cache', 'agy-1.2.16.va39'),
+    file: path.join('/virtual/cache', 'agy-1.2.16.va39r2'),
     deleted: { count: 0, bytes: 0 },
   });
   assert.deepEqual(out, []);
@@ -271,7 +271,7 @@ test('syncBinary: 互換の確認を拒否されたら skipped(compat_declined)�
     status: 'skipped', reason: 'compat_declined', detail: '', tag: '1.2.16',
     deleted: { count: 0, bytes: 0 },
   });
-  assert.equal(calls.includes('install:' + path.join('/virtual/cache', 'agy-1.2.16.va39')), false);
+  assert.equal(calls.includes('install:' + path.join('/virtual/cache', 'agy-1.2.16.va39r2')), false);
   assert.deepEqual(out, []);
   assert.deepEqual(err, []);
 });
