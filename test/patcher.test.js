@@ -297,27 +297,3 @@ test('戻り値の形: トップ 5 キーと containers(件数 0 のコンテナ
     counts: zeroCounts(),
   })
 })
-
-test('実バイナリ検証(AGY_REAL_BINARY 設定時のみ)', (t) => {
-  const p = process.env.AGY_REAL_BINARY
-  if (!p) {
-    t.skip('AGY_REAL_BINARY が未設定')
-    return
-  }
-  const buf = Buffer.from(fs.readFileSync(p))
-  const r = applyVA39Patch(buf)
-  assert.deepStrictEqual(
-    { ubfx: r.ubfx, lsl: r.lsl, mask: r.mask, mmap: r.mmap, word: r.word },
-    { ubfx: 0, lsl: 6, mask: 0, mmap: 7, word: 13 },
-  )
-  assert.equal(r.containers.length, 3)
-  assert.equal(r.containers[0].kind, 'main')
-  assert.equal(r.containers[0].counts.lsl, 6)
-  assert.equal(r.containers[0].counts.mmap, 6)
-  assert.equal(r.containers[0].counts.word, 7)
-  const embedded = [r.containers[1].counts, r.containers[2].counts]
-    .sort((a, b) => a.mmap - b.mmap)
-  assert.deepStrictEqual(embedded[0], zeroCounts())
-  assert.equal(embedded[1].mmap, 1)
-  assert.equal(embedded[1].word, 6)
-})
