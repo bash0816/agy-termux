@@ -52,6 +52,7 @@ async function buildSyncDeps() {
     confirmCompat: async () => true,
     onPhase,
     progress: true,
+    ensure: ({ forceRefresh } = {}) => bc.ensureBinary(require('../lib/ensure-wiring').makeEnsureDeps({ fs, download: downloadBinary, patch: (buf) => require('../lib/patcher').applyVA39Patch(buf), onPhase, progress: true, npmVersion: require('../package.json').version }), { meta, dir: INSTALL_DIR, isPatch, unverified: false, forceRefresh: !!forceRefresh }),
     install: async (file) => {
       await bc.installBinary({
         download: downloadBinary,
@@ -261,6 +262,7 @@ async function main() {
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
   const { describeFailure } = require('../lib/errors');
   const bc = require('../lib/binary-cache');
+  const { makeEnsureDeps } = require('../lib/ensure-wiring');
   const glibcLib = path.join(prefix, 'glibc', 'lib');
   const isPatch = bc.needsPatch();
 
@@ -284,37 +286,25 @@ async function main() {
   }
   const { tagName, downloadUrl, sha256Tar, sha256Binary } = meta;
 
-  // 版付きのキャッシュ先(検証済みは agy-<tag>.<ext>、FORCE_LATEST は unverified/ 配下)
-  const { file: tmp } = bc.cachePaths({ dir: INSTALL_DIR, tag: tagName, isPatch, unverified: useLatest });
-  // キャッシュの健全性チェック(サイズ + ELFマジックバイト)。壊れている場合は再取得させる
-  const cacheHit = !forceRefresh && bc.isCacheValid(fs, tmp);
+  // 取得が必要か(FORCE_REFRESH のときは常に取得し直す)。使えるキャッシュがあれば取得しない
+  const needInstall = forceRefresh || !bc.findUsableArtifact({ fs }, { meta, dir: INSTALL_DIR, isPatch, unverified: useLatest });
 
-  if (!cacheHit && isPatch) {
+  if (needInstall && isPatch) {
     const c = await consent.gateCompat();
     if (c === 'declined') { console.error('[agy] 互換調整に同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
     if (c === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
   }
 
-  // バイナリを取得して配置する。取得の前に予告を出す(取得の進捗はダウンロード側が出す)
-  const install = async () => {
-    process.stderr.write(`[agy] ${tagName} のバイナリを取得します(初回のみ・数分かかることがあります。次回からは取得しません)\n`);
-    // 取得前に既存キャッシュは消さない。配置は一時ファイル経由の rename で行う
-    await bc.installBinary({
-      download: downloadBinary,
-      patch: (buf) => require('../lib/patcher').applyVA39Patch(buf),
-      fs,
-      pid: process.pid,
-      randomHex: () => require('crypto').randomBytes(4).toString('hex'),
-      onPhase: (label) => process.stderr.write('[agy] ' + label + '\n'),
-      progress: true,
-    }, { meta: { tagName, downloadUrl, sha256Tar, sha256Binary }, isPatch, file: tmp });
-  };
+  // 取得と配置は ensureBinary に任せる。取得の前の予告は従来の文言を維持する(進捗はダウンロード側が出す)
+  const onPhase = (label) => process.stderr.write('[agy] ' + (label === '取得します...' ? `${tagName} のバイナリを取得します(初回のみ・数分かかることがあります。次回からは取得しません)` : label) + '\n');
+  // refresh は ensureBinary の forceRefresh に渡す。戻り値の file が起動対象になる
+  const ensureArtifact = (refresh) => bc.ensureBinary(makeEnsureDeps({ fs, download: downloadBinary, patch: (buf) => require('../lib/patcher').applyVA39Patch(buf), onPhase, progress: true, npmVersion: require('../package.json').version }), { meta, dir: INSTALL_DIR, isPatch, unverified: useLatest, forceRefresh: refresh });
 
   const { spawn } = require('child_process');
   // loader を 1 回起動して終了を待つ。spawn の直前に標準入力を止める
-  const runLoader = () => new Promise((resolve) => {
+  const runLoader = (file) => new Promise((resolve) => {
     process.stdin.pause();
-    const child = spawn(loader, ['--library-path', glibcLib, tmp, ...args], {
+    const child = spawn(loader, ['--library-path', glibcLib, file, ...args], {
       stdio: 'inherit',
       env: Object.assign({}, process.env, {
         LD_PRELOAD: path.join(__dirname, "..", "lib", "native", "sigsys_shim.so"),
@@ -328,21 +318,22 @@ async function main() {
       process.exit(1);
     });
   });
-  // 必要なら取得してから loader を起動する
-  const launchOnce = async (needInstall) => {
-    if (needInstall) {
-      try { await install(); } catch (err) { failAndExit(err); }
-    }
-    return runLoader();
+  // ensureBinary で成果物を用意してから loader を起動する。起動に使った file も返す
+  const launchOnce = async (refresh) => {
+    let res;
+    try { res = await ensureArtifact(refresh); } catch (err) { failAndExit(err); }
+    // 取得に失敗したが既存の有効な成果物で起動する場合だけ知らせる
+    if (res.source === 'recovered') process.stderr.write('[agy] 取得に失敗しましたが、既存のバイナリで起動します\n');
+    return { r: await runLoader(res.file), file: res.file };
   };
 
   // 自己回復は launch 全体で 1 回だけ。キャッシュの実体が消えていた場合に限り、取得し直して起動する
   let recovered = false;
-  let r = await launchOnce(!cacheHit);
-  if (!r.signal && r.code !== 0 && !fs.existsSync(tmp) && !recovered) {
+  let { r, file } = await launchOnce(forceRefresh);
+  if (!r.signal && r.code !== 0 && !fs.existsSync(file) && !recovered) {
     recovered = true;
     process.stderr.write('[agy] キャッシュが入れ替わったため、取得し直して起動します...\n');
-    r = await launchOnce(true);
+    ({ r } = await launchOnce(false));
   }
   process.exit(r.signal ? 1 : (r.code ?? 0));
 }

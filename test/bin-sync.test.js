@@ -155,7 +155,7 @@ test('L4 AGY_TERMUX_REFRESH=1 は既存キャッシュがあっても取得し�
   assert.equal(countGets(sb), 2);
 });
 
-test('L5 REFRESH で取得に失敗しても既存の版別ファイルを壊さず、tmp を残さない', () => {
+test('L5 REFRESH で取得に失敗しても既存の有効なファイルで起動し、既存ファイルを壊さず tmp を残さない', () => {
   const sb = setup('l5', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   const first = launch(sb);
   assert.equal(first.status, 0, first.stderr);
@@ -164,7 +164,7 @@ test('L5 REFRESH で取得に失敗しても既存の版別ファイルを壊さ
 
   setRoute(sb.routes, { kind: 'corrupt' });
   const r = launch(sb, { AGY_TERMUX_REFRESH: '1' });
-  assert.notEqual(r.status, 0);
+  assert.equal(r.status, 0, r.stderr);
   assert.equal(sha256File(target), before);
   assert.deepEqual(h.listDir(sb.cacheDir).filter((n) => n.endsWith('.tmp')), []);
 });
