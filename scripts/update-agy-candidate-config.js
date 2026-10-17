@@ -39,6 +39,9 @@ async function main() {
       }
     }
 
+    // 旧判定の出力キーは書き出さない(新5欄と va39_baseline_comparison は、あれば転記される)
+    delete candidateMeta.va39_patch_regression;
+
     // Ensure config directory exists
     const configDir = path.dirname(CANDIDATE_CONFIG_PATH);
     fs.mkdirSync(configDir, { recursive: true });

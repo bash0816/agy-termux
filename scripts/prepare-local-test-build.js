@@ -44,12 +44,25 @@ function main() {
     process.exit(1);
   }
 
+  // VA39 期待値の5欄は candidate に存在するものだけ転記する(順序: rev, counts, breakdown, sha256, size)
+  const EXPECTATION_KEYS = [
+    'va39_patcher_rev',
+    'va39_patch_counts',
+    'va39_patch_breakdown',
+    'va39_patched_sha256',
+    'va39_patched_size',
+  ];
+  const expectationFields = {};
+  for (const k of EXPECTATION_KEYS) {
+    if (k in candidateMeta) expectationFields[k] = candidateMeta[k];
+  }
+
   const verifiedMeta = {
     tag_name: candidateMeta.tag_name,
     download_url: candidateMeta.download_url,
     sha256_tar: candidateMeta.sha256_tar,
     sha256_binary: candidateMeta.sha256_binary,
-    va39_patch_counts: candidateMeta.va39_patch_counts,
+    ...expectationFields,
     release_id: candidateMeta.release_id,
     asset_id: candidateMeta.asset_id,
     asset_updated_at: candidateMeta.asset_updated_at,
