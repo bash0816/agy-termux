@@ -47,10 +47,10 @@ function httpsGet(url) {
 }
 
 /**
- * release 情報とバイナリ情報から candidate meta を組み立てる(ネットワークは使わない)。
- * verifiedConfig は読めなかった場合 null。binBuf は書き換えない。
+ * release の状態を検査し、対象 asset を返す。ダウンロード前に呼ぶこと(ネットワークは使わない)。
+ * draft / prerelease / asset 不在なら Error を投げる。
  */
-function buildCandidateMeta({ version, releaseMeta, tarSha256, binSha256, binBuf, verifiedConfig, tokyoDate }) {
+function assertReleaseDownloadable(version, releaseMeta) {
   // Validate release state
   if (releaseMeta.draft) {
     throw new Error(`Release ${version} is a draft, skipping`);
@@ -64,6 +64,16 @@ function buildCandidateMeta({ version, releaseMeta, tarSha256, binSha256, binBuf
   if (!asset) {
     throw new Error(`Asset '${ASSET_NAME}' not found in release ${version}`);
   }
+  return asset;
+}
+
+/**
+ * release 情報とバイナリ情報から candidate meta を組み立てる(ネットワークは使わない)。
+ * verifiedConfig は読めなかった場合 null。binBuf は書き換えない。
+ */
+function buildCandidateMeta({ version, releaseMeta, tarSha256, binSha256, binBuf, verifiedConfig, tokyoDate }) {
+  // Re-check release state and find the asset (same checks as before download)
+  const asset = assertReleaseDownloadable(version, releaseMeta);
 
   // Apply VA39 patch to a copy and build the expectation fields
   const binBufCopy = Buffer.from(binBuf);
@@ -102,6 +112,34 @@ function buildCandidateMeta({ version, releaseMeta, tarSha256, binSha256, binBuf
   };
 }
 
+/**
+ * 取得・検査・ダウンロード・候補組み立てを行う。外部入出力は注入する。
+ * 検査(draft / prerelease / asset 不在)はダウンロードより前に行い、拒否時は download を呼ばない。
+ */
+async function runCandidate({ version, fetchRelease, download, readVerifiedConfig, tokyoDate }) {
+  // Fetch release info from GitHub API
+  const releaseMeta = await fetchRelease(version);
+
+  // Validate release state and look up the asset before any download
+  const asset = assertReleaseDownloadable(version, releaseMeta);
+
+  // Verify binary and compute SHA256
+  const { tarSha256, binSha256, binBuf } = await download(asset.browser_download_url);
+
+  // Load baseline from verified config (null when unreadable: first time setup)
+  const verifiedConfig = readVerifiedConfig();
+
+  return buildCandidateMeta({
+    version,
+    releaseMeta,
+    tarSha256,
+    binSha256,
+    binBuf,
+    verifiedConfig,
+    tokyoDate,
+  });
+}
+
 async function main() {
   const version = process.argv[2];
   if (!version) {
@@ -110,34 +148,21 @@ async function main() {
   }
 
   try {
-    // Fetch release info from GitHub API
-    const apiUrl = `https://api.github.com/repos/google-antigravity/antigravity-cli/releases/tags/${version}`;
-    const releaseMeta = JSON.parse((await httpsGet(apiUrl)).toString());
-
-    // Look up the asset to get its download URL
-    const asset = releaseMeta.assets.find(a => a.name === ASSET_NAME);
-    if (!asset) {
-      throw new Error(`Asset '${ASSET_NAME}' not found in release ${version}`);
-    }
-
-    // Verify binary and compute SHA256
-    const { tarSha256, binSha256, binBuf } = await verifyBinary(asset.browser_download_url);
-
-    // Load baseline from verified config (null when unreadable: first time setup)
-    let verifiedConfig = null;
-    try {
-      verifiedConfig = JSON.parse(fs.readFileSync(VERIFIED_CONFIG_PATH, 'utf8'));
-    } catch (e) {
-      // If we can't read baseline, just continue
-    }
-
-    const candidateMeta = buildCandidateMeta({
+    const candidateMeta = await runCandidate({
       version,
-      releaseMeta,
-      tarSha256,
-      binSha256,
-      binBuf,
-      verifiedConfig,
+      fetchRelease: async (v) => {
+        const apiUrl = `https://api.github.com/repos/google-antigravity/antigravity-cli/releases/tags/${v}`;
+        return JSON.parse((await httpsGet(apiUrl)).toString());
+      },
+      download: verifyBinary,
+      readVerifiedConfig: () => {
+        try {
+          return JSON.parse(fs.readFileSync(VERIFIED_CONFIG_PATH, 'utf8'));
+        } catch (e) {
+          // If we can't read baseline, just continue
+          return null;
+        }
+      },
       // Current date in Asia/Tokyo timezone
       tokyoDate: getTokyoDate(),
     });
@@ -154,4 +179,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { buildCandidateMeta };
+module.exports = { assertReleaseDownloadable, buildCandidateMeta, runCandidate };

@@ -7,7 +7,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { buildElf } = require('./helpers/elf-fixture')
-const { buildCandidateMeta } = require('../scripts/prepare-agy-candidate')
+const { buildCandidateMeta, runCandidate } = require('../scripts/prepare-agy-candidate')
 
 const REPO = path.join(__dirname, '..')
 const UPDATE_SCRIPT = path.join(REPO, 'scripts', 'update-agy-candidate-config.js')
@@ -155,6 +155,55 @@ test('buildCandidateMeta: draft / prerelease / asset 無しは Error', () => {
     () => buildCandidateMeta(buildArgs({ releaseMeta: releaseMeta({ assets: [] }) })),
     /not found/
   )
+})
+
+// runCandidate の外部入出力を差し替え、download と読込が呼ばれた回数を数える
+function spyCandidate(release) {
+  const calls = { fetch: 0, download: 0, readConfig: 0 }
+  const run = () =>
+    runCandidate({
+      version: '1.2.3',
+      fetchRelease: async () => {
+        calls.fetch++
+        return release
+      },
+      download: async () => {
+        calls.download++
+        return { tarSha256: 'a'.repeat(64), binSha256: 'b'.repeat(64), binBuf: buildBinary() }
+      },
+      readVerifiedConfig: () => {
+        calls.readConfig++
+        return null
+      },
+      tokyoDate: '2026-10-17',
+    })
+  return { run, calls }
+}
+
+test('runCandidate: draft / prerelease / asset 無しは download の前に拒否する', async () => {
+  const cases = [
+    [{ draft: true }, { message: 'Release 1.2.3 is a draft, skipping' }],
+    [{ prerelease: true }, { message: 'Release 1.2.3 is a prerelease, skipping' }],
+    [{ assets: [] }, { message: "Asset 'agy_cli_linux_arm64.tar.gz' not found in release 1.2.3" }],
+  ]
+  for (const [overrides, expected] of cases) {
+    const { run, calls } = spyCandidate(releaseMeta(overrides))
+    await assert.rejects(run, expected)
+    assert.equal(calls.fetch, 1)
+    assert.equal(calls.download, 0, `download must not be called for ${JSON.stringify(overrides)}`)
+    assert.equal(calls.readConfig, 0)
+  }
+})
+
+test('runCandidate: 通常の release は download を 1 回呼び、候補 meta を返す', async () => {
+  const { run, calls } = spyCandidate(releaseMeta())
+  const meta = await run()
+  assert.equal(calls.download, 1)
+  assert.equal(calls.readConfig, 1)
+  assert.equal(meta.tag_name, '1.2.3')
+  assert.equal(meta.download_url, 'https://example.invalid/agy_cli_linux_arm64.tar.gz')
+  assert.equal(meta.status, 'pending_device_verification')
+  for (const k of NEW_FIVE) assert.ok(k in meta, `missing ${k}`)
 })
 
 // ---- update-agy-candidate-config.js ----
