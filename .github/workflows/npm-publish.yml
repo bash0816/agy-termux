@@ -222,6 +222,7 @@ jobs:
           if (pin.tag_name !== expected) errors.push(`tarball pin tag_name (${pin.tag_name}) != expected_version (${expected})`);
           if (pin.release_state !== 'stable') errors.push(`tarball pin release_state is '${pin.release_state}', expected 'stable'`);
           if (tarballRev !== currentRev) errors.push(`tarball patcher rev (${tarballRev}) != current rev (${currentRev})`);
+          if (pin.va39_patcher_rev !== currentRev) errors.push(`tarball pin va39_patcher_rev (${pin.va39_patcher_rev}) != current rev (${currentRev})`);
           const v = validateExpectation(pin, { allowLegacy: false });
           if (!v.ok) errors.push(`tarball pin VA39 expectation is invalid or missing: ${(v.errors || []).join('; ')}`);
           if (errors.length) { for (const e of errors) console.error('ERROR: ' + e); process.exit(1); }
