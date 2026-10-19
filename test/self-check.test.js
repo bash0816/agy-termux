@@ -378,3 +378,110 @@ test('lib/patcher-rev.json が読めない・正の整数でなければ patcher
   delete missing['lib/patcher-rev.json']
   assert.deepStrictEqual(run({ files: missing }).problems, ['patcher_rev_file'])
 })
+
+// --deep: キャッシュ成果物と原本の SHA-256 を pin と照合する(spec G3 B3 の項目4・テスト(e))
+const crypto = require('crypto')
+const REAL_BINARY_CACHE = require('../lib/binary-cache')
+
+const CACHE_DIR = path.join(ROOT, 'cache')
+const DEEP_PATHS = REAL_BINARY_CACHE.cachePaths({ dir: CACHE_DIR, tag: '1.2.16', isPatch: true, unverified: false })
+const PATCHED_KEY = relKey(DEEP_PATHS.file)
+const ORIGINAL_KEY = relKey(DEEP_PATHS.original)
+const PATCHED_BYTES = Buffer.from('patched-artifact-bytes')
+const ORIGINAL_BYTES = Buffer.from('original-binary-bytes')
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex')
+}
+
+// makeFs に openSync / readSync / closeSync を足す。openSync の呼び出し回数を spy.opens に数える
+function makeDeepFs(files, spy) {
+  const base = makeFs(files)
+  return Object.assign(base, {
+    openSync(p) {
+      spy.opens += 1
+      const key = relKey(p)
+      if (!Object.prototype.hasOwnProperty.call(files, key)) {
+        const e = new Error(`ENOENT: no such file, open '${key}'`)
+        e.code = 'ENOENT'
+        throw e
+      }
+      return { key }
+    },
+    readSync(fd, buf, off, len, pos) {
+      spy.reads += 1
+      const v = files[fd.key]
+      const data = typeof v === 'string' ? Buffer.from(v, 'utf8') : v
+      const n = Math.max(0, Math.min(len, data.length - pos))
+      data.copy(buf, off, pos, pos + n)
+      return n
+    },
+    closeSync() {},
+  })
+}
+
+// cacheFiles: { キャッシュ内の相対パス: 内容 }。pin の SHA は既定で正しい値を入れる
+function runDeep({ cacheFiles = {}, deep = true, pinOver = {} } = {}) {
+  const pin = {
+    ...NEW_PIN,
+    va39_patched_sha256: sha256Hex(PATCHED_BYTES),
+    sha256_binary: sha256Hex(ORIGINAL_BYTES),
+    ...pinOver,
+  }
+  const files = healthyFiles({ 'config/agy-verified-versions.json': JSON.stringify(pin) })
+  Object.assign(files, cacheFiles)
+  const modules = newModules()
+  modules['lib/binary-cache.js'] = REAL_BINARY_CACHE
+  const spy = { opens: 0, reads: 0 }
+  const r = runSelfCheck({
+    pkgRoot: ROOT,
+    nonce: 'n-1',
+    deep,
+    cacheDir: CACHE_DIR,
+    fs: makeDeepFs(files, spy),
+    requireFn: makeRequire(modules),
+  })
+  return { r, spy }
+}
+
+test('(e) --deep: 成果物の SHA が pin.va39_patched_sha256 と違うと deep:patched_sha になる', () => {
+  const { r } = runDeep({
+    cacheFiles: { [PATCHED_KEY]: 'tampered', [ORIGINAL_KEY]: ORIGINAL_BYTES },
+  })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['deep:patched_sha'])
+})
+
+test('(e) --deep: 原本の SHA が pin.sha256_binary と違うと deep:original_sha になる', () => {
+  const { r } = runDeep({
+    cacheFiles: { [PATCHED_KEY]: PATCHED_BYTES, [ORIGINAL_KEY]: 'tampered' },
+  })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['deep:original_sha'])
+})
+
+test('(e) --deep: キャッシュファイルが無ければ問題にならない', () => {
+  const { r } = runDeep({ cacheFiles: {} })
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
+
+test('(e) --deep=false では SHA を計算しない(openSync / readSync が呼ばれない)', () => {
+  const { r, spy } = runDeep({
+    deep: false,
+    cacheFiles: { [PATCHED_KEY]: 'tampered', [ORIGINAL_KEY]: 'tampered' },
+  })
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+  assert.strictEqual(spy.opens, 0)
+  assert.strictEqual(spy.reads, 0)
+})
+
+test('(e) --deep: 両方の SHA が一致すれば ok になる', () => {
+  const { r, spy } = runDeep({
+    cacheFiles: { [PATCHED_KEY]: PATCHED_BYTES, [ORIGINAL_KEY]: ORIGINAL_BYTES },
+  })
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+  assert.ok(spy.opens >= 2)
+})
