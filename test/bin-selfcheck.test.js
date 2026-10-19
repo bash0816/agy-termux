@@ -80,3 +80,23 @@ test('lib/run-npm.js を欠いたコピーでは --self-check=zzz が終了コ�
   assert.strictEqual(r.status, 1)
   assert.strictEqual(r.stdout.includes('SELF_CHECK_OK'), false)
 })
+
+test('--self-check=abc123 --deep: HOME/.agy-termux のキャッシュ成果物が pin と違えば終了コード 1 で deep の問題を報告し、--deep 無しでは通る', () => {
+  const home = mkTmp('agy-sc-home-')
+  const pin = require(path.join(ROOT, 'config', 'agy-verified-versions.json'))
+  const { cachePaths } = require(path.join(ROOT, 'lib', 'binary-cache'))
+  const paths = cachePaths({ dir: path.join(home, '.agy-termux'), tag: pin.tag_name, isPatch: true, unverified: false })
+  fs.mkdirSync(path.dirname(paths.file), { recursive: true })
+  fs.writeFileSync(paths.file, 'tampered-patched')
+  fs.writeFileSync(paths.original, 'tampered-original')
+
+  const deep = runAgy(AGY, ['--self-check=abc123', '--deep'], home)
+  assert.strictEqual(deep.status, 1, `stdout: ${deep.stdout}`)
+  assert.strictEqual(deep.stdout.includes('SELF_CHECK_OK'), false)
+  assert.ok(deep.stderr.includes('deep:patched_sha'), `stderr: ${deep.stderr}`)
+  assert.ok(deep.stderr.includes('deep:original_sha'), `stderr: ${deep.stderr}`)
+
+  const plain = runAgy(AGY, ['--self-check=abc123'], home)
+  assert.strictEqual(plain.status, 0, `stderr: ${plain.stderr}`)
+  assert.strictEqual(lastLine(plain.stdout), `SELF_CHECK_OK abc123 ${VERSION}`)
+})

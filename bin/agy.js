@@ -161,11 +161,12 @@ async function main() {
     process.exit(0);
   }
 
-  // --self-check[=<nonce>]: 同意・ネットワーク・書き込みより前に返す自己診断
+  // --self-check[=<nonce>][ --deep]: 同意・ネットワーク・書き込みより前に返す自己診断
   if (args[0] === '--self-check' || (typeof args[0] === 'string' && args[0].startsWith('--self-check='))) {
     const { runSelfCheck } = require('../lib/self-check');
     const nonce = args[0].includes('=') ? args[0].slice(args[0].indexOf('=') + 1) : undefined;
-    const r = runSelfCheck({ pkgRoot: path.resolve(__dirname, '..'), nonce });
+    const deep = args[1] === '--deep';
+    const r = runSelfCheck({ pkgRoot: path.resolve(__dirname, '..'), nonce, deep, cacheDir: INSTALL_DIR });
     if (r.ok) {
       if (r.line) console.log(r.line);
       process.exit(0);
