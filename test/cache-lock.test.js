@@ -443,3 +443,137 @@ eachKind('除去直前に別 token に入れ替わっていたら除去せず待
   assert.equal(counts.sleep, 2)
   assert.equal(readOwner(lockPath).token, 'other-token')
 })
+
+test('readlinkSync が EACCES なら待たずに reject する（symlink ロック、環境エラー）', async (t) => {
+  const dir = makeDir(t)
+  const lockPath = path.join(dir, 'cache.lock')
+  writeLock(lockPath, LIVE_OWNER, 'link')
+  let checkCalls = 0
+  let waitCalls = 0
+  const { deps, counts } = makeDeps({
+    fs: realFs({ readlinkSync: () => { throw makeErr('EACCES') } }),
+  })
+
+  await assert.rejects(
+    acquireLock(deps, {
+      lockPath,
+      npmVersion: '10.0.0',
+      checkDone: () => { checkCalls += 1; return false },
+      onWait: () => { waitCalls += 1 },
+    }),
+    { code: 'EACCES' },
+  )
+
+  assert.equal(checkCalls, 0)
+  assert.equal(waitCalls, 0)
+  assert.equal(counts.sleep, 0)
+  assert.equal(isSymlinkLock(lockPath), true)
+})
+
+test('通常ファイルのロックで readFileSync が EACCES / EIO なら待たずに reject する', async (t) => {
+  for (const code of ['EACCES', 'EIO']) {
+    const dir = makeDir(t)
+    const lockPath = path.join(dir, 'cache.lock')
+    writeLock(lockPath, LIVE_OWNER, 'file')
+    let checkCalls = 0
+    let waitCalls = 0
+    const { deps, counts } = makeDeps({
+      fs: realFs({ readFileSync: () => { throw makeErr(code) } }),
+    })
+
+    await assert.rejects(
+      acquireLock(deps, {
+        lockPath,
+        npmVersion: '10.0.0',
+        checkDone: () => { checkCalls += 1; return false },
+        onWait: () => { waitCalls += 1 },
+      }),
+      { code },
+    )
+
+    assert.equal(checkCalls, 0, code)
+    assert.equal(waitCalls, 0, code)
+    assert.equal(counts.sleep, 0, code)
+    assert.equal(isFileLock(lockPath), true, code)
+  }
+})
+
+test('readlinkSync が ENOENT（ロックが消えた競合）なら例外にせず再試行して取得する', async (t) => {
+  const dir = makeDir(t)
+  const lockPath = path.join(dir, 'cache.lock')
+  let createCalls = 0
+  const { deps, counts } = makeDeps({
+    fs: realFs({
+      symlinkSync: (target, p) => {
+        createCalls += 1
+        // 1 回目は「ロックがある」と見せ、2 回目以降は実際に作る
+        if (createCalls === 1) throw makeErr('EEXIST')
+        return fs.symlinkSync(target, p)
+      },
+      readlinkSync: (p) => {
+        // 1 回目の作成試行の直後だけ「読もうとしたら消えていた」を再現する
+        if (createCalls === 1) throw makeErr('ENOENT')
+        return fs.readlinkSync(p)
+      },
+    }),
+  })
+
+  const r = await acquireLock(deps, { lockPath, npmVersion: '10.0.0', checkDone: () => false, onWait: () => {} })
+
+  assert.equal(r.acquired, true)
+  assert.equal(counts.sleep, 1)
+  assert.equal(isSymlinkLock(lockPath), true)
+  r.release()
+  assert.equal(lockExists(lockPath), false)
+})
+
+test('通常ファイルのロックが読取り中に消えた（readFileSync の ENOENT）なら例外にせず再試行して取得する', async (t) => {
+  const dir = makeDir(t)
+  const lockPath = path.join(dir, 'cache.lock')
+  let createCalls = 0
+  const { deps, counts } = makeDeps({
+    fs: realFs({
+      symlinkSync: (target, p) => {
+        createCalls += 1
+        if (createCalls === 1) throw makeErr('EEXIST')
+        return fs.symlinkSync(target, p)
+      },
+      readlinkSync: (p) => {
+        // 1 回目だけ通常ファイルとして扱わせ、readFileSync に進ませる
+        if (createCalls === 1) throw makeErr('EINVAL')
+        return fs.readlinkSync(p)
+      },
+      readFileSync: (p, enc) => {
+        if (createCalls === 1) throw makeErr('ENOENT')
+        return fs.readFileSync(p, enc)
+      },
+    }),
+  })
+
+  const r = await acquireLock(deps, { lockPath, npmVersion: '10.0.0', checkDone: () => false, onWait: () => {} })
+
+  assert.equal(r.acquired, true)
+  assert.equal(counts.sleep, 1)
+  assert.equal(isSymlinkLock(lockPath), true)
+  r.release()
+  assert.equal(lockExists(lockPath), false)
+})
+
+test('release は readLockText が EACCES を投げても例外を出さず、ロックも消さない', async (t) => {
+  const dir = makeDir(t)
+  const lockPath = path.join(dir, 'cache.lock')
+  let broken = false
+  const { deps } = makeDeps({
+    fs: realFs({
+      readlinkSync: (p) => {
+        if (broken) throw makeErr('EACCES')
+        return fs.readlinkSync(p)
+      },
+    }),
+  })
+  const r = await acquireLock(deps, { lockPath, npmVersion: '10.0.0', checkDone: () => false, onWait: () => {} })
+
+  broken = true
+  assert.doesNotThrow(() => r.release())
+  assert.equal(lockExists(lockPath), true)
+})
