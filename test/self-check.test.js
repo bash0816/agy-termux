@@ -84,6 +84,7 @@ function healthyFiles(over = {}) {
     'package.json': JSON.stringify({ name: '@bash0816/agy-termux', version: '1.2.16' }),
     'config/agy-verified-versions.json': JSON.stringify(GOOD_PIN),
     'lib/native/sigsys_shim.so': REAL_SHIM,
+    'lib/patcher-rev.json': '{"rev":2}',
   }, over)
 }
 
@@ -315,4 +316,65 @@ test('実パッケージ全体を対象にすると ok になり、SELF_CHECK_OK
   assert.deepStrictEqual(r.problems, [])
   assert.strictEqual(r.ok, true)
   assert.strictEqual(r.line, 'SELF_CHECK_OK x ' + r.version)
+})
+
+// VA39 期待値・patcher rev の検査(spec G3 B3 の項目3)
+const REAL_VA39 = require('../lib/va39-expectation')
+const REAL_PIN = require('../config/agy-verified-versions.json')
+
+// 実 pin の値をそのまま使い、版だけ fixture の package.json(1.2.16)に合わせた新記録の pin
+const NEW_PIN = { ...REAL_PIN, tag_name: '1.2.16' }
+
+// va39-expectation だけ実物を使う(stub の validateExpectation は戻り値が無いため)
+function newModules() {
+  const modules = healthyModules()
+  modules['lib/va39-expectation.js'] = REAL_VA39
+  return modules
+}
+
+function withPin(pin, extra = {}) {
+  return run({
+    modules: newModules(),
+    files: healthyFiles(Object.assign({ 'config/agy-verified-versions.json': JSON.stringify(pin) }, extra)),
+  })
+}
+
+test('(a) VA39 rev が文字列の新記録 pin は expectation と patcher_rev になる', () => {
+  const r = withPin({ ...NEW_PIN, va39_patcher_rev: '2' })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['expectation', 'patcher_rev'])
+})
+
+test('(a) breakdown が空配列の新記録 pin は expectation になる', () => {
+  const r = withPin({ ...NEW_PIN, va39_patch_breakdown: [] })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['expectation'])
+})
+
+test('(b) 新記録の欄が全く無い旧スキーマ pin は ok のまま', () => {
+  const r = run()
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
+
+test('(b) 有効な新記録 pin と rev 2 のファイルは ok', () => {
+  const r = withPin(NEW_PIN)
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
+
+test('(c) lib/patcher-rev.json の rev が pin と違うと patcher_rev になる', () => {
+  const r = withPin(NEW_PIN, { 'lib/patcher-rev.json': '{"rev":3}' })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['patcher_rev'])
+})
+
+test('lib/patcher-rev.json が読めない・正の整数でなければ patcher_rev_file になる', () => {
+  for (const bad of ['{ broken', '{"rev":0}', '{"rev":"2"}', '{"rev":1.5}', '{}']) {
+    const r = run({ files: healthyFiles({ 'lib/patcher-rev.json': bad }) })
+    assert.deepStrictEqual(r.problems, ['patcher_rev_file'], bad)
+  }
+  const missing = healthyFiles()
+  delete missing['lib/patcher-rev.json']
+  assert.deepStrictEqual(run({ files: missing }).problems, ['patcher_rev_file'])
 })
