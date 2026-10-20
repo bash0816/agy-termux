@@ -27,6 +27,16 @@ function changedWordOffsets(original, patched) {
   return offs;
 }
 
+// 原本と異なるバイトのうち、どの実行範囲([start, end))にも入っていないものの offset を返す
+function bytesOutsideRanges(original, patched, ranges) {
+  const outside = [];
+  for (let i = 0; i < original.length; i++) {
+    if (original[i] === patched[i]) continue;
+    if (!ranges.some((r) => r.start <= i && i < r.end)) outside.push(i);
+  }
+  return outside;
+}
+
 function main(argv) {
   if (argv.length !== 1) {
     console.error(USAGE);
@@ -67,10 +77,9 @@ function main(argv) {
 
   const violations = [];
 
-  // 検査1: 書き換えられた全ての語が、いずれかのコンテナの実行範囲に収まっている
-  for (const off of changedOffs) {
-    const inside = allRanges.some((r) => r.start <= off && off + WORD_BYTES <= r.end);
-    if (!inside) violations.push(`書換えが実行範囲の外にあります: offset=0x${off.toString(16)}`);
+  // 検査1: 書き換えられた全てのバイトが、いずれかのコンテナの実行範囲に収まっている（整列に依存しない）
+  for (const off of bytesOutsideRanges(raw, work, allRanges)) {
+    violations.push(`書換えが実行範囲の外にあります: offset=0x${off.toString(16)}`);
   }
 
   // 検査2: 2回目の適用は全キー 0 件で、バッファは変化しない
@@ -94,9 +103,13 @@ function main(argv) {
   return 0;
 }
 
-try {
-  process.exitCode = main(process.argv.slice(2));
-} catch (err) {
-  console.error(`予期しない例外: ${err && err.message ? err.message : err}`);
-  process.exitCode = 1;
+if (require.main === module) {
+  try {
+    process.exitCode = main(process.argv.slice(2));
+  } catch (err) {
+    console.error(`予期しない例外: ${err && err.message ? err.message : err}`);
+    process.exitCode = 1;
+  }
 }
+
+module.exports = { changedWordOffsets, bytesOutsideRanges };
