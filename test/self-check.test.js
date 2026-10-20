@@ -72,8 +72,6 @@ function healthyModules() {
     'lib/consent.js': fns(REQUIRED_EXPORTS['consent']),
     'lib/render-final.js': fns(REQUIRED_EXPORTS['render-final']),
     'lib/run-sync-child.js': fns(REQUIRED_EXPORTS['run-sync-child']),
-    'lib/cache-lock.js': fns(REQUIRED_EXPORTS['cache-lock']),
-    'lib/ensure-wiring.js': fns(REQUIRED_EXPORTS['ensure-wiring']),
     'lib/va39-expectation.js': fns(REQUIRED_EXPORTS['va39-expectation']),
     'lib/elf-scan.js': fns(REQUIRED_EXPORTS['elf-scan']),
   }
@@ -292,11 +290,11 @@ test('新しい VA39 モジュールの export 欠落は export:<モジュール
   const modules = healthyModules()
   delete modules['lib/va39-expectation.js'].validateExpectation
   delete modules['lib/elf-scan.js'].scanTargets
-  delete modules['lib/binary-cache.js'].findUsableArtifact
+  delete modules['lib/binary-cache.js'].assertVa39Entry
   const r = run({ modules })
   assert.strictEqual(r.ok, false)
   assert.deepStrictEqual(r.problems.slice().sort(), [
-    'export:binary-cache.findUsableArtifact',
+    'export:binary-cache.assertVa39Entry',
     'export:elf-scan.scanTargets',
     'export:va39-expectation.validateExpectation',
   ])

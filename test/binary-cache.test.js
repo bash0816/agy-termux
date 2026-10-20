@@ -138,7 +138,6 @@ test('cachePaths: 通常の dir と unverified 配下の両方を返す', () => 
       file: path.join('/c', 'agy-1.2.16.va39r2'),
       original: path.join('/c', 'agy-1.2.16.bin'),
       legacy: path.join('/c', 'agy-1.2.16.va39'),
-      lock: path.join('/c', 'agy-1.2.16.lock'),
     },
   );
   assert.deepEqual(
@@ -148,7 +147,6 @@ test('cachePaths: 通常の dir と unverified 配下の両方を返す', () => 
       file: path.join('/c', 'agy-1.2.16.bin'),
       original: path.join('/c', 'agy-1.2.16.bin'),
       legacy: path.join('/c', 'agy-1.2.16.va39'),
-      lock: path.join('/c', 'agy-1.2.16.lock'),
     },
   );
   assert.deepEqual(
@@ -158,7 +156,6 @@ test('cachePaths: 通常の dir と unverified 配下の両方を返す', () => 
       file: path.join('/c', 'unverified', 'agy-1.2.16.bin'),
       original: path.join('/c', 'unverified', 'agy-1.2.16.bin'),
       legacy: path.join('/c', 'unverified', 'agy-1.2.16.va39'),
-      lock: path.join('/c', 'unverified', 'agy-1.2.16.lock'),
     },
   );
 });
@@ -826,33 +823,28 @@ test('cacheFileName: 新世代は .va39r2、原本は .bin。タグの v 付き�
   assert.equal(bc.cacheFileName('v1.2.16', true), 'agy-1.2.16.va39r2');
 });
 
-test('originalFileName / legacyPatchedFileName / lockFileName: 各世代とロックの名前を返す', () => {
+test('originalFileName / legacyPatchedFileName: 各世代の名前を返す', () => {
   assert.equal(bc.originalFileName('1.2.16'), 'agy-1.2.16.bin');
   assert.equal(bc.legacyPatchedFileName('1.2.16'), 'agy-1.2.16.va39');
-  assert.equal(bc.lockFileName('1.2.16'), 'agy-1.2.16.lock');
   // normalizeCacheTag を通すので v 付きでも同じ名前
   assert.equal(bc.originalFileName('v1.2.16'), 'agy-1.2.16.bin');
   assert.equal(bc.legacyPatchedFileName('v1.2.16'), 'agy-1.2.16.va39');
-  assert.equal(bc.lockFileName('v1.2.16'), 'agy-1.2.16.lock');
   // 不正なタグは拒否する
-  assert.throws(() => bc.lockFileName('../x'));
   assert.throws(() => bc.originalFileName('../x'));
   assert.throws(() => bc.legacyPatchedFileName('../x'));
 });
 
-test('cachePaths: file・original・legacy・lock を同じ dir の絶対パスで返す', () => {
+test('cachePaths: file・original・legacy を同じ dir の絶対パスで返す', () => {
   const p = bc.cachePaths({ dir: '/d', tag: '1.2.16', isPatch: true });
   assert.equal(p.dir, '/d');
   assert.equal(p.file, path.join('/d', 'agy-1.2.16.va39r2'));
   assert.equal(p.original, path.join('/d', 'agy-1.2.16.bin'));
   assert.equal(p.legacy, path.join('/d', 'agy-1.2.16.va39'));
-  assert.equal(p.lock, path.join('/d', 'agy-1.2.16.lock'));
-  // 非パッチ版でも original・legacy・lock は同じ
+  // 非パッチ版でも original・legacy は同じ
   const q = bc.cachePaths({ dir: '/d', tag: '1.2.16', isPatch: false });
   assert.equal(q.file, path.join('/d', 'agy-1.2.16.bin'));
   assert.equal(q.original, p.original);
   assert.equal(q.legacy, p.legacy);
-  assert.equal(q.lock, p.lock);
 });
 
 test('prune: .va39r2・.va39・.bin を同じタグとして扱い、pin のタグは3種とも残す', (t) => {
@@ -872,68 +864,4 @@ test('prune: .va39r2・.va39・.bin を同じタグとして扱い、pin のタ�
     'agy-1.2.16.bin', 'agy-1.2.16.va39', 'agy-1.2.16.va39r2',
     'agy-1.3.0.bin', 'agy-1.3.0.va39r2',
   ]);
-});
-
-test('prune: .lock は消さない(タグの版には数えず、残す)', (t) => {
-  const dir = writeFiles(mkTmp(t), {
-    'agy-1.2.16.va39r2': 100,
-    'agy-1.0.0.bin': 50,
-    'agy-1.0.0.lock': 1,
-    'agy-1.1.0.bin': 250,
-    'agy-1.1.0.lock': 250,
-  });
-  const { deps } = pruneDeps();
-  const deleted = bc.prune(deps, { dir, pinTag: '1.2.16' });
-  // 1.1.0 が pin 以外の最新なので残す。ロックは古いタグのものも消さない
-  assert.deepEqual(deleted.files, ['agy-1.0.0.bin']);
-  assert.deepEqual(fs.readdirSync(dir).sort(), [
-    'agy-1.0.0.lock', 'agy-1.1.0.bin', 'agy-1.1.0.lock', 'agy-1.2.16.va39r2',
-  ]);
-});
-
-test('prune: ロック用の一時ファイル(agy-<tag>.lock.<pid>.<rand>.tmp)は、esrch かつ24時間以上前なら消す', (t) => {
-  const name = 'agy-1.2.3.lock.123.ab12cd34.tmp';
-  const dir = writeFiles(mkTmp(t), { [name]: NOW_SEC - DAY_SEC - 1 });
-  const seen = { killPid: [] };
-  const deps = {
-    readdirSync: (d) => fs.readdirSync(d),
-    statSync: (p) => fs.statSync(p),
-    unlinkSync: (p) => fs.unlinkSync(p),
-    killPid: (pid) => { seen.killPid.push(pid); return 'esrch'; },
-    now: () => NOW_SEC * 1000,
-  };
-  const deleted = bc.prune(deps, { dir, pinTag: '9.9.9' });
-  assert.deepEqual(deleted.files, [name]);
-  assert.deepEqual(fs.readdirSync(dir), []);
-  assert.deepEqual(seen.killPid, [123]);
-});
-
-test('prune: ロック用の一時ファイルは、所有 pid が生存なら残す', (t) => {
-  const name = 'agy-1.2.3.lock.123.ab12cd34.tmp';
-  const dir = writeFiles(mkTmp(t), { [name]: NOW_SEC - DAY_SEC - 1 });
-  const { deps } = pruneDeps({ killPid: () => 'alive' });
-  const deleted = bc.prune(deps, { dir, pinTag: '9.9.9' });
-  assert.deepEqual(deleted.files, []);
-  assert.deepEqual(fs.readdirSync(dir), [name]);
-});
-
-test('prune: ロック用の一時ファイルは、esrch でも24時間未満なら残す', (t) => {
-  const name = 'agy-1.2.3.lock.123.ab12cd34.tmp';
-  const dir = writeFiles(mkTmp(t), { [name]: NOW_SEC - DAY_SEC + 60 });
-  const { deps } = pruneDeps({ killPid: () => 'esrch' });
-  const deleted = bc.prune(deps, { dir, pinTag: '9.9.9' });
-  assert.deepEqual(deleted.files, []);
-  assert.deepEqual(fs.readdirSync(dir), [name]);
-});
-
-test('listManualCleanup: agy-<tag>.lock は手動削除候補に載らない。世代ファイルも載らない', (t) => {
-  const dir = writeFiles(mkTmp(t), {
-    'agy-1.2.16.lock': 1,
-    'agy-1.2.16.va39r2': 1,
-    'agy-1.2.16.bin': 1,
-    'agy-foo.bin': 1,
-  });
-  const r = bc.listManualCleanup({ readdirSync: fs.readdirSync, statSync: fs.statSync }, { dir });
-  assert.deepEqual(r.files.map((f) => path.basename(f.path)), ['agy-foo.bin']);
-  assert.equal(fs.existsSync(path.join(dir, 'agy-1.2.16.lock')), true);
 });

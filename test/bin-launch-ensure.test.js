@@ -1,7 +1,8 @@
 'use strict';
 
-// 起動(launch)が ensureBinary を通ることの確認。実物の bin/agy.js を子プロセスで起動し、
-// 取得の要否・取得失敗時の救済・loader の起動先・自己回復を確認する
+// 起動(launch)時のバイナリ取得を確認する。実物の bin/agy.js を子プロセスで起動し、
+// 起動時に取得が必要かどうか・取得失敗時の扱い・loader の起動先・自己回復・
+// VA39 の pin エントリの確認を行う
 // 通信は test/helpers/mock-https.js で偽物にし、実ネットワークには触れない
 
 const { test, after } = require('node:test');
