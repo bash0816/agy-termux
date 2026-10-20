@@ -635,3 +635,95 @@ test('U1 update は REFRESH/FORCE_LATEST を無視する: 既存の pin 版を�
   assert.equal(countGets(sb), 1);
   assert.equal(h.readLog(sb.mockLog).some((l) => l.includes('api.github.com')), false);
 });
+
+// VA39 の同期テスト用。bin-launch-ensure.test.js の同名ヘルパーを複製している(バイナリ共有のため require しない)
+const VA39_BIN_SIZE = 10 * 1024 * 1024 + 4096;
+
+function readPinConfig(pkgDir) {
+  return JSON.parse(fs.readFileSync(path.join(pkgDir, 'config', 'agy-verified-versions.json'), 'utf8'));
+}
+
+function writePinConfig(pkgDir, obj) {
+  fs.writeFileSync(path.join(pkgDir, 'config', 'agy-verified-versions.json'), JSON.stringify(obj, null, 2) + '\n');
+}
+
+// 指定サイズで ELF の先頭が合う偽の va39 キャッシュを置く
+function writeFakeVa39Cache(sb, tag, size = VA39_BIN_SIZE) {
+  const { cachePaths } = require('../lib/binary-cache');
+  const file = cachePaths({ dir: sb.cacheDir, tag, isPatch: true, unverified: false }).file;
+  fs.mkdirSync(sb.cacheDir, { recursive: true });
+  const buf = Buffer.alloc(size);
+  buf[0] = 0x7f;
+  buf.write('ELF', 1, 'latin1');
+  fs.writeFileSync(file, buf);
+  return file;
+}
+
+// 有効な小さい期待値(サイズ VA39_BIN_SIZE の main 1 区間)を pin に書く
+function writeValidVa39Expectation(sb) {
+  const cfg = readPinConfig(sb.pkgDir);
+  cfg.va39_patched_size = VA39_BIN_SIZE;
+  cfg.va39_patch_breakdown = [
+    { kind: 'main', offset: 0, size: VA39_BIN_SIZE, counts: { ...cfg.va39_patch_counts } },
+  ];
+  writePinConfig(sb.pkgDir, cfg);
+}
+
+// sha256 の期待値を欠き、サイズだけ書いた不正な VA39 期待値にする
+function writeInvalidVa39Expectation(sb) {
+  const cfg = readPinConfig(sb.pkgDir);
+  delete cfg.va39_patched_sha256;
+  cfg.va39_patched_size = VA39_BIN_SIZE;
+  writePinConfig(sb.pkgDir, cfg);
+}
+
+test('SY1 VA39 の期待値が不正なら、同版の agy update は偽キャッシュを採用せず error にし、取得も掃除もしない', () => {
+  const sb = setup('sy1', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
+  setAuditedRoute(sb.routes, '1.3.0');
+  writeInvalidVa39Expectation(sb);
+  const cachePath = writeFakeVa39Cache(sb, '1.3.0');
+  const before = sha256File(cachePath);
+
+  const r = update(sb, { MOCK_VA_BITS: '39' });
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.equal(countGets(sb), 0, r.stdout + r.stderr);
+  assert.equal(sha256File(cachePath), before, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /検証済みの期待値が不足しているため、起動を停止しました/, r.stdout + r.stderr);
+});
+
+test('SY2 VA39 の期待値が不正なら、同期専用の経路(update --sync-binary-only)も error で非ゼロ終了し、取得しない', () => {
+  const sb = setup('sy2', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
+  setAuditedRoute(sb.routes, '1.3.0');
+  writeInvalidVa39Expectation(sb);
+  const cachePath = writeFakeVa39Cache(sb, '1.3.0');
+  const before = sha256File(cachePath);
+
+  const r = h.runAgy(sb, ['update', '--sync-binary-only'], { MOCK_ROUTES: sb.routes, MOCK_VA_BITS: '39' });
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.equal(countGets(sb), 0, r.stdout + r.stderr);
+  assert.equal(sha256File(cachePath), before, r.stdout + r.stderr);
+});
+
+test('SY3 VA39 の pin が有効で、偽キャッシュのサイズと ELF が一致すれば、同期は current で取得しない(回帰)', () => {
+  const sb = setup('sy3', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
+  setAuditedRoute(sb.routes, '1.3.0');
+  writeValidVa39Expectation(sb);
+  writeFakeVa39Cache(sb, '1.3.0');
+
+  const r = update(sb, { MOCK_VA_BITS: '39' });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(countGets(sb), 0, r.stdout + r.stderr);
+});
+
+test('SY4 VA39 の pin が有効でも、サイズが違うキャッシュは current にならず、同期は取得に進む', () => {
+  const sb = setup('sy4', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
+  setAuditedRoute(sb.routes, '1.3.0');
+  writeValidVa39Expectation(sb);
+  const cachePath = writeFakeVa39Cache(sb, '1.3.0', VA39_BIN_SIZE + 1);
+  const before = sha256File(cachePath);
+
+  const r = update(sb, { MOCK_VA_BITS: '39' });
+  assert.equal(countGets(sb), 1, r.stdout + r.stderr);
+  assert.equal(fs.existsSync(cachePath), true, r.stdout + r.stderr);
+  assert.equal(sha256File(cachePath), before, r.stdout + r.stderr);
+});
