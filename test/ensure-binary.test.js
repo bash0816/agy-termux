@@ -13,6 +13,7 @@ const path = require('node:path')
 const { ensureBinary, cachePaths } = require('../lib/binary-cache')
 const { buildExpectation } = require('../lib/va39-expectation')
 const { typedError, VA39_CODES } = require('../lib/errors')
+const { acquireLock: realAcquireLock } = require('../lib/cache-lock')
 const PATCHER_REV = require('../lib/patcher-rev.json').rev
 
 // 偽の原本のサイズ。キャッシュ判定の最小サイズ(10 MiB)以上にする
@@ -621,168 +622,6 @@ test('forceRefresh で download が失敗しても、既存の有効な成果物
   assert.equal(rec.downloads, 1)
 })
 
-test('forceRefresh: 生存中のロックの後で、待機前から有ったが古い成果物は完了扱いせず自分で取得する', async (t) => {
-  const dir = mkTmp(t)
-  const bin = makeBin()
-  const meta = makeMeta(bin)
-  const p = pathsOf(dir, meta)
-  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-  fs.writeFileSync(p.original, bin)
-  const old = new Date(Date.now() - 60_000)
-  fs.utimesSync(p.file, old, old)
-  fs.utimesSync(p.original, old, old)
-  const { deps, rec } = makeDeps({
-    serve: bin,
-    now: () => Date.now(),
-    acquireLock: async (lockPath, opts) => {
-      // 生存中のロックを待つ。待機中に新しい成果物は現れず、古いままなので checkDone は偽
-      if (opts.checkDone()) return { acquired: false }
-      return { acquired: true, release: () => {} }
-    },
-  })
-
-  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
-
-  assert.equal(rec.downloads, 1)
-  assert.equal(r.source, 'downloaded')
-  assert.notEqual(r.source, 'waited')
-})
-
-test('forceRefresh: 待機中に他者が新しく完成させた成果物は採用し、download は呼ばない', async (t) => {
-  const dir = mkTmp(t)
-  const bin = makeBin()
-  const meta = makeMeta(bin)
-  const p = pathsOf(dir, meta)
-  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-  fs.writeFileSync(p.original, bin)
-  const old = new Date(Date.now() - 60_000)
-  fs.utimesSync(p.file, old, old)
-  fs.utimesSync(p.original, old, old)
-  const { deps, rec } = makeDeps({
-    serve: bin,
-    now: () => Date.now(),
-    acquireLock: async (lockPath, opts) => {
-      // 待機中に他者が新しい成果物を完成させた状況(mtime は待機開始後になる)
-      fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-      return { acquired: false, done: opts.checkDone() }
-    },
-  })
-
-  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
-
-  assert.equal(r.source, 'waited')
-  assert.equal(r.file, p.file)
-  assert.equal(rec.downloads, 0)
-})
-
-for (const ageMs of [0, 500, 1000]) {
-  test(`forceRefresh: 生存中のロックの後で、開始の ${ageMs}ms 前から有る成果物は完了扱いせず download する`, async (t) => {
-    const dir = mkTmp(t)
-    const bin = makeBin()
-    const meta = makeMeta(bin)
-    const p = pathsOf(dir, meta)
-    fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-    fs.writeFileSync(p.original, bin)
-    const old = new Date(Date.now() - ageMs)
-    fs.utimesSync(p.file, old, old)
-    fs.utimesSync(p.original, old, old)
-    const { deps, rec } = makeDeps({
-      serve: bin,
-      now: () => Date.now(),
-      acquireLock: async (lockPath, opts) => {
-        // 待機中に成果物は変わらないので checkDone は偽
-        if (opts.checkDone()) return { acquired: false, done: true }
-        return { acquired: true, release: () => {} }
-      },
-    })
-
-    const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
-
-    assert.equal(rec.downloads, 1)
-    assert.notEqual(r.source, 'waited')
-    assert.equal(r.source, 'downloaded')
-  })
-}
-
-test('forceRefresh: 待機中に成果物が別 inode へ差し替わったら waited とし download しない', async (t) => {
-  const dir = mkTmp(t)
-  const bin = makeBin()
-  const meta = makeMeta(bin)
-  const p = pathsOf(dir, meta)
-  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-  fs.writeFileSync(p.original, bin)
-  const old = new Date(Date.now() - 60_000)
-  fs.utimesSync(p.file, old, old)
-  fs.utimesSync(p.original, old, old)
-  const { deps, rec } = makeDeps({
-    serve: bin,
-    now: () => Date.now(),
-    acquireLock: async (lockPath, opts) => {
-      // 同じ mtime・同じ size のまま rename で差し替え(変わるのは ino だけ)
-      const tmp = p.file + '.swap'
-      fs.writeFileSync(tmp, applyFakePatch(bin).buf)
-      fs.utimesSync(tmp, old, old)
-      fs.renameSync(tmp, p.file)
-      return { acquired: false, done: opts.checkDone() }
-    },
-  })
-
-  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
-
-  assert.equal(r.source, 'waited')
-  assert.equal(r.file, p.file)
-  assert.equal(rec.downloads, 0)
-})
-
-test('forceRefresh: 待機中に成果物の mtime だけが変わったら waited とし download しない', async (t) => {
-  const dir = mkTmp(t)
-  const bin = makeBin()
-  const meta = makeMeta(bin)
-  const p = pathsOf(dir, meta)
-  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-  fs.writeFileSync(p.original, bin)
-  const old = new Date(Date.now() - 60_000)
-  fs.utimesSync(p.file, old, old)
-  fs.utimesSync(p.original, old, old)
-  const { deps, rec } = makeDeps({
-    serve: bin,
-    now: () => Date.now(),
-    acquireLock: async (lockPath, opts) => {
-      // 内容・inode は同じで mtime だけを更新する
-      const now = new Date()
-      fs.utimesSync(p.file, now, now)
-      return { acquired: false, done: opts.checkDone() }
-    },
-  })
-
-  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
-
-  assert.equal(r.source, 'waited')
-  assert.equal(r.file, p.file)
-  assert.equal(rec.downloads, 0)
-})
-
-test('forceRefresh: 開始時に成果物が無く、待機中に現れたら完了とみなして waited', async (t) => {
-  const dir = mkTmp(t)
-  const bin = makeBin()
-  const meta = makeMeta(bin)
-  const p = pathsOf(dir, meta)
-  const { deps, rec } = makeDeps({
-    serve: bin,
-    now: () => Date.now(),
-    acquireLock: async (lockPath, opts) => {
-      fs.writeFileSync(p.file, applyFakePatch(bin).buf)
-      return { acquired: false, done: opts.checkDone() }
-    },
-  })
-
-  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
-
-  assert.equal(r.source, 'waited')
-  assert.equal(r.file, p.file)
-  assert.equal(rec.downloads, 0)
-})
-
 test('forceRefresh でない: 有効な成果物があれば待機せず即 cache', async (t) => {
   const dir = mkTmp(t)
   const bin = makeBin()
@@ -804,4 +643,185 @@ test('forceRefresh でない: 有効な成果物があれば待機せず即 cach
   assert.equal(r.file, p.file)
   assert.equal(rec.downloads, 0)
   assert.equal(locks, 0)
+})
+
+// 以下は forceRefresh と生存ロックの試験。実 acquireLock(lib/cache-lock.js)に、生存中の所有者のロックを作って待機させる
+// 生存ロックの作り方は test/cache-lock.test.js と同じ(symlink の中身が所有者の JSON)
+const LIVE_OWNER_PID = 4242
+const TEST_TIMEOUT_MS = 10_000
+
+const liveLockDeps = {
+  fs,
+  now: () => Date.now(),
+  pid: process.pid,
+  randomHex: () => crypto.randomBytes(8).toString('hex'),
+  killPid: () => 'alive',
+  readProcStart: () => 'S1',
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}
+
+// 生存中の所有者が持つロックを lockPath に作る(procStart は readProcStart の戻り値 'S1' と一致させる)
+function makeLiveLock(lockPath) {
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true })
+  const owner = {
+    token: crypto.randomBytes(16).toString('hex'),
+    pid: LIVE_OWNER_PID,
+    procStart: 'S1',
+    npmVersion: '10.0.0',
+    createdAt: Date.now(),
+  }
+  fs.symlinkSync(JSON.stringify(owner), lockPath)
+}
+
+// 所有者が解放したのと同じ状態にする
+function releaseLiveLock(lockPath) {
+  fs.unlinkSync(lockPath)
+}
+
+// 実 acquireLock を注入する。待機に入った(onWait が呼ばれた)時点で waiting が解決する(決定的な同期)
+function makeLiveWaitDeps(overrides = {}) {
+  let notifyWaiting
+  const waiting = new Promise((resolve) => {
+    notifyWaiting = resolve
+  })
+  const made = makeDeps({
+    now: () => Date.now(),
+    acquireLock: (lockPath, opts) =>
+      realAcquireLock(liveLockDeps, {
+        ...opts,
+        lockPath,
+        pollMs: 10,
+        onWait: (info) => {
+          opts.onWait(info)
+          notifyWaiting()
+        },
+      }),
+    ...overrides,
+  })
+  return { ...made, waiting }
+}
+
+// Promise が解決したかどうかを記録する
+function trackSettled(promise) {
+  const state = { settled: false }
+  promise.then(
+    () => {
+      state.settled = true
+    },
+    () => {
+      state.settled = true
+    },
+  )
+  return state
+}
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// 待機中に他者が成果物を置き換える方法
+const REPLACE_WHILE_WAITING = {
+  '同じパスへ書き直され': (p, bin) => {
+    fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+  },
+  '別 inode へ差し替えられ': (p, bin) => {
+    const tmp = p.file + '.swap'
+    fs.writeFileSync(tmp, applyFakePatch(bin).buf)
+    fs.renameSync(tmp, p.file)
+  },
+}
+
+for (const ageMs of [0, 500, 1000, 60_000]) {
+  test(`forceRefresh: 生存ロックの解放まで待ち、開始の ${ageMs}ms 前から有る成果物があっても解放後に自分で取得する`, { timeout: TEST_TIMEOUT_MS }, async (t) => {
+    const dir = mkTmp(t)
+    const bin = makeBin()
+    const meta = makeMeta(bin)
+    const p = pathsOf(dir, meta)
+    fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+    fs.writeFileSync(p.original, bin)
+    const old = new Date(Date.now() - ageMs)
+    fs.utimesSync(p.file, old, old)
+    fs.utimesSync(p.original, old, old)
+    makeLiveLock(p.lock)
+    const { deps, rec, waiting } = makeLiveWaitDeps({ serve: bin })
+
+    const run = ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+    const state = trackSettled(run)
+    await waiting
+    await pause(30)
+    assert.equal(state.settled, false, '生存ロックの解放までは完了しない')
+    assert.equal(rec.downloads, 0)
+
+    releaseLiveLock(p.lock)
+    const r = await run
+    assert.equal(rec.downloads, 1)
+    assert.equal(r.source, 'downloaded')
+  })
+}
+
+for (const [label, replace] of Object.entries(REPLACE_WHILE_WAITING)) {
+  test(`forceRefresh: 生存ロックの待機中に成果物が${label}ても待機を続け、解放後に download はちょうど 1 回`, { timeout: TEST_TIMEOUT_MS }, async (t) => {
+    const dir = mkTmp(t)
+    const bin = makeBin()
+    const meta = makeMeta(bin)
+    const p = pathsOf(dir, meta)
+    fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+    fs.writeFileSync(p.original, bin)
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(p.file, old, old)
+    fs.utimesSync(p.original, old, old)
+    makeLiveLock(p.lock)
+    const { deps, rec, waiting } = makeLiveWaitDeps({ serve: bin })
+
+    const run = ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+    const state = trackSettled(run)
+    await waiting
+    replace(p, bin)
+    await pause(30)
+    assert.equal(state.settled, false, '他者の成果物があっても REFRESH は待機を続ける')
+    assert.equal(rec.downloads, 0)
+
+    releaseLiveLock(p.lock)
+    const r = await run
+    assert.equal(rec.downloads, 1)
+    assert.equal(r.source, 'downloaded')
+  })
+}
+
+test(`forceRefresh: 開始時に成果物が無く、生存ロックの待機中に現れても待機を続け、解放後に download はちょうど 1 回`, { timeout: TEST_TIMEOUT_MS }, async (t) => {
+  const dir = mkTmp(t)
+  const bin = makeBin()
+  const meta = makeMeta(bin)
+  const p = pathsOf(dir, meta)
+  makeLiveLock(p.lock)
+  const { deps, rec, waiting } = makeLiveWaitDeps({ serve: bin })
+
+  const run = ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+  const state = trackSettled(run)
+  await waiting
+  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+  await pause(30)
+  assert.equal(state.settled, false, '他者の成果物が現れても REFRESH は待機を続ける')
+  assert.equal(rec.downloads, 0)
+
+  releaseLiveLock(p.lock)
+  const r = await run
+  assert.equal(rec.downloads, 1)
+  assert.equal(r.source, 'downloaded')
+})
+
+test('forceRefresh でない: 生存ロックの待機中に有効な成果物が現れたら download せず waited', { timeout: TEST_TIMEOUT_MS }, async (t) => {
+  const dir = mkTmp(t)
+  const bin = makeBin()
+  const meta = makeMeta(bin)
+  const p = pathsOf(dir, meta)
+  makeLiveLock(p.lock)
+  const { deps, rec, waiting } = makeLiveWaitDeps({ serve: bin })
+
+  const run = ensureBinary(deps, ctxOf(dir, meta))
+  await waiting
+  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+  const r = await run
+
+  assert.equal(r.source, 'waited')
+  assert.equal(r.file, p.file)
+  assert.equal(rec.downloads, 0)
 })
