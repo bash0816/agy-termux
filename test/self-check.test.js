@@ -72,6 +72,8 @@ function healthyModules() {
     'lib/consent.js': fns(REQUIRED_EXPORTS['consent']),
     'lib/render-final.js': fns(REQUIRED_EXPORTS['render-final']),
     'lib/run-sync-child.js': fns(REQUIRED_EXPORTS['run-sync-child']),
+    'lib/va39-expectation.js': fns(REQUIRED_EXPORTS['va39-expectation']),
+    'lib/elf-scan.js': fns(REQUIRED_EXPORTS['elf-scan']),
   }
 }
 
@@ -80,6 +82,7 @@ function healthyFiles(over = {}) {
     'package.json': JSON.stringify({ name: '@bash0816/agy-termux', version: '1.2.16' }),
     'config/agy-verified-versions.json': JSON.stringify(GOOD_PIN),
     'lib/native/sigsys_shim.so': REAL_SHIM,
+    'lib/patcher-rev.json': '{"rev":2}',
   }, over)
 }
 
@@ -283,6 +286,20 @@ test('consent の export 欠落は export:consent.createConsent になる', () =
   assert.deepStrictEqual(r.problems, ['export:consent.createConsent'])
 })
 
+test('新しい VA39 モジュールの export 欠落は export:<モジュール>.<名前> になる', () => {
+  const modules = healthyModules()
+  delete modules['lib/va39-expectation.js'].validateExpectation
+  delete modules['lib/elf-scan.js'].scanTargets
+  delete modules['lib/binary-cache.js'].assertVa39Entry
+  const r = run({ modules })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems.slice().sort(), [
+    'export:binary-cache.assertVa39Entry',
+    'export:elf-scan.scanTargets',
+    'export:va39-expectation.validateExpectation',
+  ])
+})
+
 test('render-final の export が関数でなければ export:render-final.renderFinal になる', () => {
   const modules = healthyModules()
   modules['lib/render-final.js'].renderFinal = 'not a function'
@@ -297,4 +314,243 @@ test('実パッケージ全体を対象にすると ok になり、SELF_CHECK_OK
   assert.deepStrictEqual(r.problems, [])
   assert.strictEqual(r.ok, true)
   assert.strictEqual(r.line, 'SELF_CHECK_OK x ' + r.version)
+})
+
+// VA39 期待値・patcher rev の検査(spec G3 B3 の項目3)
+const REAL_VA39 = require('../lib/va39-expectation')
+const REAL_PIN = require('../config/agy-verified-versions.json')
+
+// 実 pin の値をそのまま使い、版だけ fixture の package.json(1.2.16)に合わせた新記録の pin
+const NEW_PIN = { ...REAL_PIN, tag_name: '1.2.16' }
+
+// va39-expectation だけ実物を使う(stub の validateExpectation は戻り値が無いため)
+function newModules() {
+  const modules = healthyModules()
+  modules['lib/va39-expectation.js'] = REAL_VA39
+  return modules
+}
+
+function withPin(pin, extra = {}) {
+  return run({
+    modules: newModules(),
+    files: healthyFiles(Object.assign({ 'config/agy-verified-versions.json': JSON.stringify(pin) }, extra)),
+  })
+}
+
+test('(a) VA39 rev が文字列の新記録 pin は expectation と patcher_rev になる', () => {
+  const r = withPin({ ...NEW_PIN, va39_patcher_rev: '2' })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['expectation', 'patcher_rev'])
+})
+
+test('(a) breakdown が空配列の新記録 pin は expectation になる', () => {
+  const r = withPin({ ...NEW_PIN, va39_patch_breakdown: [] })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['expectation'])
+})
+
+test('(b) 新記録の欄が全く無い旧スキーマ pin は ok のまま', () => {
+  const r = run()
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
+
+test('(b) 有効な新記録 pin と rev 2 のファイルは ok', () => {
+  const r = withPin(NEW_PIN)
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
+
+test('(c) lib/patcher-rev.json の rev が pin と違うと patcher_rev になる', () => {
+  const r = withPin(NEW_PIN, { 'lib/patcher-rev.json': '{"rev":3}' })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['patcher_rev'])
+})
+
+test('lib/patcher-rev.json が読めない・正の整数でなければ patcher_rev_file になる', () => {
+  for (const bad of ['{ broken', '{"rev":0}', '{"rev":"2"}', '{"rev":1.5}', '{}']) {
+    const r = run({ files: healthyFiles({ 'lib/patcher-rev.json': bad }) })
+    assert.deepStrictEqual(r.problems, ['patcher_rev_file'], bad)
+  }
+  const missing = healthyFiles()
+  delete missing['lib/patcher-rev.json']
+  assert.deepStrictEqual(run({ files: missing }).problems, ['patcher_rev_file'])
+})
+
+// --deep: キャッシュ成果物と原本の SHA-256 を pin と照合する(spec G3 B3 の項目4・テスト(e))
+const crypto = require('crypto')
+const REAL_BINARY_CACHE = require('../lib/binary-cache')
+
+const CACHE_DIR = path.join(ROOT, 'cache')
+const DEEP_PATHS = REAL_BINARY_CACHE.cachePaths({ dir: CACHE_DIR, tag: '1.2.16', isPatch: true, unverified: false })
+const PATCHED_KEY = relKey(DEEP_PATHS.file)
+const ORIGINAL_KEY = relKey(DEEP_PATHS.original)
+const PATCHED_BYTES = Buffer.from('patched-artifact-bytes')
+const ORIGINAL_BYTES = Buffer.from('original-binary-bytes')
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex')
+}
+
+// makeFs に openSync / readSync / closeSync を足す。openSync の呼び出し回数を spy.opens に数える
+function makeDeepFs(files, spy) {
+  const base = makeFs(files)
+  return Object.assign(base, {
+    openSync(p) {
+      spy.opens += 1
+      const key = relKey(p)
+      if (!Object.prototype.hasOwnProperty.call(files, key)) {
+        const e = new Error(`ENOENT: no such file, open '${key}'`)
+        e.code = 'ENOENT'
+        throw e
+      }
+      return { key }
+    },
+    readSync(fd, buf, off, len, pos) {
+      spy.reads += 1
+      const v = files[fd.key]
+      const data = typeof v === 'string' ? Buffer.from(v, 'utf8') : v
+      const n = Math.max(0, Math.min(len, data.length - pos))
+      data.copy(buf, off, pos, pos + n)
+      return n
+    },
+    closeSync() {},
+  })
+}
+
+// cacheFiles: { キャッシュ内の相対パス: 内容 }。pin の SHA は既定で正しい値を入れる
+function runDeep({ cacheFiles = {}, deep = true, pinOver = {} } = {}) {
+  const pin = {
+    ...NEW_PIN,
+    va39_patched_sha256: sha256Hex(PATCHED_BYTES),
+    sha256_binary: sha256Hex(ORIGINAL_BYTES),
+    ...pinOver,
+  }
+  const files = healthyFiles({ 'config/agy-verified-versions.json': JSON.stringify(pin) })
+  Object.assign(files, cacheFiles)
+  const modules = newModules()
+  modules['lib/binary-cache.js'] = REAL_BINARY_CACHE
+  const spy = { opens: 0, reads: 0 }
+  const r = runSelfCheck({
+    pkgRoot: ROOT,
+    nonce: 'n-1',
+    deep,
+    cacheDir: CACHE_DIR,
+    fs: makeDeepFs(files, spy),
+    requireFn: makeRequire(modules),
+  })
+  return { r, spy }
+}
+
+test('(e) --deep: 成果物の SHA が pin.va39_patched_sha256 と違うと deep:patched_sha になる', () => {
+  const { r } = runDeep({
+    cacheFiles: { [PATCHED_KEY]: 'tampered', [ORIGINAL_KEY]: ORIGINAL_BYTES },
+  })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['deep:patched_sha'])
+})
+
+test('(e) --deep: 原本の SHA が pin.sha256_binary と違うと deep:original_sha になる', () => {
+  const { r } = runDeep({
+    cacheFiles: { [PATCHED_KEY]: PATCHED_BYTES, [ORIGINAL_KEY]: 'tampered' },
+  })
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['deep:original_sha'])
+})
+
+test('(e) --deep: キャッシュファイルが無ければ問題にならない', () => {
+  const { r } = runDeep({ cacheFiles: {} })
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
+
+test('(e) --deep=false では SHA を計算しない(openSync / readSync が呼ばれない)', () => {
+  const { r, spy } = runDeep({
+    deep: false,
+    cacheFiles: { [PATCHED_KEY]: 'tampered', [ORIGINAL_KEY]: 'tampered' },
+  })
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+  assert.strictEqual(spy.opens, 0)
+  assert.strictEqual(spy.reads, 0)
+})
+
+test('(e) --deep: 両方の SHA が一致すれば ok になる', () => {
+  const { r, spy } = runDeep({
+    cacheFiles: { [PATCHED_KEY]: PATCHED_BYTES, [ORIGINAL_KEY]: ORIGINAL_BYTES },
+  })
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+  assert.ok(spy.opens >= 2)
+})
+
+// 修正2(B3 回帰): counts だけを持つ旧スキーマ pin(origin/main の実 pin の形)を self-check が拒否しないこと
+// origin/main の実 pin から notes と ID 類を省き、形(counts あり・新4欄なし)を同じにしたリテラル
+const ORIGIN_PIN_SHAPE = {
+  tag_name: '1.3.2',
+  download_url: 'https://github.com/google-antigravity/antigravity-cli/releases/download/1.3.2/agy_cli_linux_arm64.tar.gz',
+  sha256_tar: 'f904ce9ca50ee7d2010bd8063a864ce37c31585c710af451bab66be6e4b59a74',
+  sha256_binary: 'bc66d5cccc40791da0d5e5d93a4140a6d961cf37b4d216aaf52918bb9bcad765',
+  va39_patch_counts: { ubfx: 4, lsl: 19, mask: 0, mmap: 6, word: 7 },
+  release_state: 'stable',
+  verified_date: '2026-10-14',
+}
+
+// package.json(1.2.16)と版を合わせた旧形式の pin
+const LEGACY_PIN = { ...ORIGIN_PIN_SHAPE, tag_name: '1.2.16' }
+
+test('(修正2 a) origin/main と同じ旧形式(counts あり・新4欄なし)の pin は ok で、expectation は積まれない', () => {
+  const r = withPin(LEGACY_PIN)
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+  assert.ok(!r.problems.includes('expectation'))
+})
+
+test('(修正2 b) counts の形式が不正(数値でなく文字列)の旧 pin は expectation になる', () => {
+  const pin = { ...LEGACY_PIN, va39_patch_counts: { ...LEGACY_PIN.va39_patch_counts, ubfx: '4' } }
+  const r = withPin(pin)
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['expectation'])
+})
+
+// 新4欄の値(1〜3欄だけ入れるテスト用。形式の正しさは問わない。欄が有るかどうかだけで判定される)
+const NEW_FIELD_VALUES = {
+  va39_patcher_rev: 2,
+  va39_patch_breakdown: [],
+  va39_patched_sha256: 'a'.repeat(64),
+  va39_patched_size: 1000,
+}
+
+const PARTIAL_NEW_KEYS = [
+  ['va39_patcher_rev'],
+  ['va39_patch_breakdown'],
+  ['va39_patched_sha256'],
+  ['va39_patched_size'],
+  ['va39_patcher_rev', 'va39_patched_sha256', 'va39_patched_size'],
+  ['va39_patch_breakdown', 'va39_patched_sha256', 'va39_patched_size'],
+]
+
+for (const keys of PARTIAL_NEW_KEYS) {
+  test(`(修正2 c) 新4欄のうち ${keys.join(', ')} だけ有る pin は expectation になる`, () => {
+    const pin = { ...LEGACY_PIN }
+    for (const k of keys) pin[k] = NEW_FIELD_VALUES[k]
+    const r = withPin(pin)
+    assert.strictEqual(r.ok, false)
+    assert.deepStrictEqual(r.problems, ['expectation'])
+  })
+}
+
+test('(修正2 d) 新4欄が全部有る正しい pin は ok', () => {
+  const counts = { ubfx: 1, lsl: 2, mask: 0, mmap: 0, word: 0 }
+  const pin = {
+    ...LEGACY_PIN,
+    va39_patch_counts: counts,
+    va39_patcher_rev: 2,
+    va39_patch_breakdown: [{ kind: 'main', offset: 0, size: 1000, counts: { ...counts } }],
+    va39_patched_sha256: 'a'.repeat(64),
+    va39_patched_size: 1000,
+  }
+  const r = withPin(pin)
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
 })

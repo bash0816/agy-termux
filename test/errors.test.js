@@ -10,6 +10,15 @@ const {
   describeFailure,
   diagnoseLowSpace,
 } = require('../lib/errors')
+const {
+  VA39_CODES,
+  va39Error,
+  isDeterministicFailure,
+  isEnvironmentError,
+  isTransientFetchFailure,
+} = require('../lib/errors')
+const fs = require('fs')
+const path = require('path')
 
 const MB = 1024 * 1024
 
@@ -280,4 +289,139 @@ test('diagnoseLowSpace: free が無い・数値でない場合は false', () => 
 test('diagnoseLowSpace: 閾値を指定できる', () => {
   assert.equal(diagnoseLowSpace({ free: 5, threshold: 10 }), true)
   assert.equal(diagnoseLowSpace({ free: 10, threshold: 10 }), false)
+})
+
+test('patcher-rev.json: JSON として読め、rev は正の安全整数', () => {
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'lib', 'patcher-rev.json'), 'utf8')
+  const data = JSON.parse(raw)
+  assert.equal(Number.isSafeInteger(data.rev), true)
+  assert.equal(data.rev > 0, true)
+})
+
+test('va39Error: stage が無ければ REFETCH_REQUIRED は STAGE_FETCH', () => {
+  const err = va39Error(VA39_CODES.REFETCH_REQUIRED)
+  assert.equal(err.code, 'VA39_REFETCH_REQUIRED')
+  assert.equal(err.stage, 'STAGE_FETCH')
+})
+
+test('va39Error: stage が無ければ決定的 3 種は STAGE_PATCH', () => {
+  for (const code of [
+    VA39_CODES.PATCH_UNSUPPORTED,
+    VA39_CODES.COUNT_MISMATCH,
+    VA39_CODES.EXPECTATION_MISSING,
+  ]) {
+    assert.equal(va39Error(code).stage, 'STAGE_PATCH', code)
+  }
+})
+
+test('va39Error: props.stage があればそれを優先する', () => {
+  assert.equal(va39Error(VA39_CODES.REFETCH_REQUIRED, { stage: 'STAGE_PATCH' }).stage, 'STAGE_PATCH')
+  assert.equal(va39Error(VA39_CODES.COUNT_MISMATCH, { stage: 'STAGE_FETCH' }).stage, 'STAGE_FETCH')
+})
+
+test('isDeterministicFailure: 決定的 3 種は true、REFETCH_REQUIRED は false', () => {
+  assert.equal(isDeterministicFailure(va39Error(VA39_CODES.PATCH_UNSUPPORTED)), true)
+  assert.equal(isDeterministicFailure(va39Error(VA39_CODES.COUNT_MISMATCH)), true)
+  assert.equal(isDeterministicFailure(va39Error(VA39_CODES.EXPECTATION_MISSING)), true)
+  assert.equal(isDeterministicFailure(va39Error(VA39_CODES.REFETCH_REQUIRED)), false)
+})
+
+test('isDeterministicFailure: null・undefined・文字列でも例外にならず false', () => {
+  assert.equal(isDeterministicFailure(null), false)
+  assert.equal(isDeterministicFailure(undefined), false)
+  assert.equal(isDeterministicFailure('VA39_COUNT_MISMATCH'), false)
+})
+
+test('isDeterministicFailure: code で判定する(数値の errno があっても同じ)', () => {
+  assert.equal(isDeterministicFailure({ code: 'VA39_COUNT_MISMATCH', errno: -1 }), true)
+  assert.equal(isDeterministicFailure({ code: 'E_SHA', errno: 'EACCES' }), false)
+})
+
+test('isEnvironmentError: 環境系の code は true', () => {
+  for (const code of ['ENOSPC', 'EDQUOT', 'EACCES', 'EPERM', 'EROFS', 'E_NOSPACE_MAYBE']) {
+    assert.equal(isEnvironmentError({ code }), true, code)
+  }
+})
+
+test('isEnvironmentError: 環境系でない code は false', () => {
+  assert.equal(isEnvironmentError({ code: 'E_NET' }), false)
+})
+
+test('isEnvironmentError: null・undefined・文字列でも例外にならず false', () => {
+  assert.equal(isEnvironmentError(null), false)
+  assert.equal(isEnvironmentError(undefined), false)
+  assert.equal(isEnvironmentError('ENOSPC'), false)
+})
+
+test('isEnvironmentError: 空でない文字列の errno はそれを code として扱う', () => {
+  assert.equal(isEnvironmentError({ code: 'E_HTTP', errno: 'ENOSPC' }), true)
+  assert.equal(isEnvironmentError({ errno: 'EACCES' }), true)
+  assert.equal(isEnvironmentError({ code: 'ENOSPC', errno: -28 }), true)
+})
+
+test('isTransientFetchFailure: 一時的な取得失敗の code は true', () => {
+  for (const code of [
+    'E_STALL',
+    'E_NET',
+    'E_HTTP',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'VA39_REFETCH_REQUIRED',
+  ]) {
+    assert.equal(isTransientFetchFailure({ code }), true, code)
+  }
+})
+
+test('isTransientFetchFailure: 対象外の code・null・undefined・文字列は false', () => {
+  assert.equal(isTransientFetchFailure({ code: 'E_SHA' }), false)
+  assert.equal(isTransientFetchFailure({ code: 'VA39_COUNT_MISMATCH' }), false)
+  assert.equal(isTransientFetchFailure(null), false)
+  assert.equal(isTransientFetchFailure(undefined), false)
+  assert.equal(isTransientFetchFailure('E_NET'), false)
+})
+
+test('isTransientFetchFailure: errno が文字列でも code で判定する', () => {
+  assert.equal(isTransientFetchFailure({ code: 'E_NET', errno: 'ENOTFOUND' }), true)
+  assert.equal(isTransientFetchFailure({ code: 'E_SHA', errno: 'EACCES' }), false)
+})
+
+test('describeFailure: VA39 の 4 code の文言が完全一致する', () => {
+  assert.deepEqual(describeFailure({ code: 'VA39_PATCH_UNSUPPORTED' }), [
+    '互換調整を適用できないバイナリです(構造が想定と異なります)。この版の agy-termux では起動できません。agy-termux の更新をお待ちください',
+  ])
+  assert.deepEqual(describeFailure({ code: 'VA39_COUNT_MISMATCH' }), [
+    'このバイナリは検証済みの構成と一致しません。起動を停止しました。agy-termux の更新をお待ちください',
+  ])
+  assert.deepEqual(describeFailure({ code: 'VA39_EXPECTATION_MISSING' }), [
+    '検証済みの期待値が不足しているため、起動を停止しました。agy-termux の更新をお待ちください',
+  ])
+  assert.deepEqual(describeFailure({ code: 'VA39_REFETCH_REQUIRED' }), [
+    '互換調整の修正のため、バイナリを1回だけ取得し直す必要があります(約58MB)。ネットワークに接続してから、もう一度 agy を実行してください',
+  ])
+})
+
+test('describeFailure: 決定的 3 種の文言には再実行・取得し直しの案内が無い', () => {
+  for (const code of ['VA39_PATCH_UNSUPPORTED', 'VA39_COUNT_MISMATCH', 'VA39_EXPECTATION_MISSING']) {
+    assert.doesNotMatch(describeFailure({ code }).join('\n'), /もう一度|取得し直/, code)
+  }
+})
+
+test('describeFailure: 既存 code の出力は変わらない', () => {
+  assert.deepEqual(describeFailure({ code: 'E_NET' }), [
+    '通信が止まりました(または接続できません)。ネットワークを確認して、もう一度 agy update を実行してください',
+  ])
+  assert.deepEqual(describeFailure({ code: 'E_HTTP', httpStatus: 503 }), [
+    '配布元が応答しませんでした (HTTP 503)。しばらくしてからもう一度実行してください',
+  ])
+  assert.deepEqual(describeFailure({ code: 'ENOSPC', path: '/a/b' }), [
+    '保存できません(容量不足): /a/b。空き容量を確認してください(古いキャッシュは ~/.agy-termux に残っています)',
+  ])
+  assert.deepEqual(describeFailure({ code: 'XYZ', detail: 'd' }), [
+    '失敗しました(原因を特定できません: d)。もう一度実行してください',
+  ])
 })

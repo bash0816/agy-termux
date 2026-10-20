@@ -113,6 +113,13 @@ jobs:
 
           NODE
 
+      - name: VA39 expectation fields (format check)
+        run: node scripts/verify-version-sync.js
+
+      - name: VA39 expectation fields (current patcher rev required)
+        if: github.event_name == 'workflow_dispatch'
+        run: node scripts/verify-version-sync.js --require-current-rev
+
       - name: Pack dry run
         run: npm pack --dry-run
 
@@ -180,10 +187,47 @@ jobs:
       id-token: write
       actions: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify registry tarball before promotion
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EXPECTED_VERSION:-}" ]; then
+            echo "expected_version is required for promote-to-latest. Aborting." >&2
+            exit 1
+          fi
+          WORK=$(mktemp -d)
+          (cd "$WORK" && npm pack "@bash0816/agy-termux@${EXPECTED_VERSION}" --silent && mkdir x && tar -xzf ./*.tgz -C x)
+          EXPECTED_VERSION="$EXPECTED_VERSION" TARBALL_DIR="$WORK/x/package" node - <<'NODE'
+          // tarball 内のコードは実行しない。JSON とファイルを読むだけ。検証関数は checkout 済みのリポジトリのものを使う。
+          const fs = require('fs');
+          const path = require('path');
+          const { validateExpectation } = require(path.resolve('lib/va39-expectation.js'));
+          const dir = process.env.TARBALL_DIR;
+          const expected = process.env.EXPECTED_VERSION;
+          const read = rel => JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'));
+          const pkg = read('package.json');
+          const pin = read('config/agy-verified-versions.json');
+          const tarballRev = read('lib/patcher-rev.json').rev;
+          const currentRev = JSON.parse(fs.readFileSync('lib/patcher-rev.json', 'utf8')).rev;
+          const errors = [];
+          if (pkg.version !== expected) errors.push(`tarball package.version (${pkg.version}) != expected_version (${expected})`);
+          if (pin.tag_name !== expected) errors.push(`tarball pin tag_name (${pin.tag_name}) != expected_version (${expected})`);
+          if (pin.release_state !== 'stable') errors.push(`tarball pin release_state is '${pin.release_state}', expected 'stable'`);
+          if (tarballRev !== currentRev) errors.push(`tarball patcher rev (${tarballRev}) != current rev (${currentRev})`);
+          if (pin.va39_patcher_rev !== currentRev) errors.push(`tarball pin va39_patcher_rev (${pin.va39_patcher_rev}) != current rev (${currentRev})`);
+          const v = validateExpectation(pin, { allowLegacy: false });
+          if (!v.ok) errors.push(`tarball pin VA39 expectation is invalid or missing: ${(v.errors || []).join('; ')}`);
+          if (errors.length) { for (const e of errors) console.error('ERROR: ' + e); process.exit(1); }
+          console.log(`✓ registry tarball ${expected} verified (patcher rev ${tarballRev}, VA39 expectation complete)`);
+          NODE
 
       - name: Swap candidate → latest (old latest → candidate)
         env:

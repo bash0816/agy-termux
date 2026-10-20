@@ -212,7 +212,7 @@ test('installed 真・error その他: describeFailure の行を半角スペー�
   assert.deepStrictEqual(out, {
     lines: [{
       stream: 'err',
-      text: `[agy] パッケージは 1.1.0 に更新しました。バイナリの取得に失敗しました(${rows.join(' ')})。次に agy を実行すると取得し直します`,
+      text: `[agy] パッケージは 1.1.0 に更新しました。バイナリの取得に失敗しました(${rows.join(' ')})。原因を解消してから、次に agy を実行してください`,
     }],
     code: 1,
   })
@@ -434,4 +434,65 @@ test('installed 真・error loader: 更新済みの旨と glibc の案内文・e
     }],
     code: 1,
   })
+})
+
+// ---- 失敗の種類ごとの最終行(installed 真) ----
+
+function installedErrorWith(code) {
+  return renderFinal({
+    installed: true,
+    from: '1.0.0',
+    to: '1.1.0',
+    result: { status: 'error', tag: 't', deleted: { count: 0, bytes: 0 }, error: { code } },
+  })
+}
+
+const DETERMINISTIC_CODES = ['VA39_PATCH_UNSUPPORTED', 'VA39_COUNT_MISMATCH', 'VA39_EXPECTATION_MISSING']
+const ENVIRONMENT_CODES = ['ENOSPC', 'EACCES']
+const TRANSIENT_OR_OTHER_CODES = ['E_NET', 'VA39_REFETCH_REQUIRED', 'UNKNOWN_CODE_X']
+
+test('installed 真・決定的な失敗: 取得し直しの案内を出さず、再実行しても同じ結果になる旨を出す', () => {
+  for (const code of DETERMINISTIC_CODES) {
+    const out = installedErrorWith(code)
+    assert.strictEqual(out.code, 1, code)
+    assert.strictEqual(out.lines.length, 1, code)
+    assert.strictEqual(out.lines[0].stream, 'err', code)
+    const text = out.lines[0].text
+    assert.ok(!text.includes('取得し直します'), code)
+    assert.ok(text.includes('再実行しても同じ結果になります'), code)
+  }
+})
+
+test('installed 真・環境要因の失敗: 原因を解消してから agy を実行する旨を出し、取得し直しの案内は出さない', () => {
+  for (const code of ENVIRONMENT_CODES) {
+    const out = installedErrorWith(code)
+    assert.strictEqual(out.code, 1, code)
+    assert.strictEqual(out.lines.length, 1, code)
+    assert.strictEqual(out.lines[0].stream, 'err', code)
+    const text = out.lines[0].text
+    assert.ok(!text.includes('取得し直します'), code)
+    assert.ok(text.includes('原因を解消してから'), code)
+  }
+})
+
+test('installed 真・通信障害・REFETCH_REQUIRED・未知コード: 従来どおり取得し直しの案内を出す', () => {
+  for (const code of TRANSIENT_OR_OTHER_CODES) {
+    const out = installedErrorWith(code)
+    assert.strictEqual(out.code, 1, code)
+    assert.strictEqual(out.lines.length, 1, code)
+    assert.strictEqual(out.lines[0].stream, 'err', code)
+    assert.ok(out.lines[0].text.includes('次に agy を実行すると取得し直します'), code)
+  }
+})
+
+test('installed 偽・同じ error では「取得し直します」「再実行しても同じ」のどちらも含まれない', () => {
+  for (const code of [...DETERMINISTIC_CODES, ...ENVIRONMENT_CODES, ...TRANSIENT_OR_OTHER_CODES]) {
+    const out = renderFinal({
+      installed: false,
+      result: { status: 'error', tag: 't', deleted: { count: 0, bytes: 0 }, error: { code } },
+    })
+    const text = out.lines.map((line) => line.text).join('\n')
+    assert.ok(!text.includes('取得し直します'), code)
+    assert.ok(!text.includes('再実行しても同じ'), code)
+  }
 })

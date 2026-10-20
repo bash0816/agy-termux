@@ -33,6 +33,9 @@ const REQUIRED_FILES = [
   'lib/render-final.js',
   'lib/run-sync-child.js',
   'lib/self-check.js',
+  'lib/va39-expectation.js',
+  'lib/elf-scan.js',
+  'lib/patcher-rev.json',
   'lib/native/sigsys_shim.so',
   'config/agy-verified-versions.json',
 ];

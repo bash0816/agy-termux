@@ -61,7 +61,7 @@ async function buildSyncDeps() {
         randomHex: () => require('crypto').randomBytes(4).toString('hex'),
         onPhase,
         progress: true,
-      }, { meta, isPatch, file });
+      }, { meta, isPatch, unverified: false, file });
     },
     prune: (pinTag) => bc.prune({
       readdirSync: fs.readdirSync,
@@ -160,11 +160,12 @@ async function main() {
     process.exit(0);
   }
 
-  // --self-check[=<nonce>]: 同意・ネットワーク・書き込みより前に返す自己診断
+  // --self-check[=<nonce>][ --deep]: 同意・ネットワーク・書き込みより前に返す自己診断
   if (args[0] === '--self-check' || (typeof args[0] === 'string' && args[0].startsWith('--self-check='))) {
     const { runSelfCheck } = require('../lib/self-check');
     const nonce = args[0].includes('=') ? args[0].slice(args[0].indexOf('=') + 1) : undefined;
-    const r = runSelfCheck({ pkgRoot: path.resolve(__dirname, '..'), nonce });
+    const deep = args[1] === '--deep';
+    const r = runSelfCheck({ pkgRoot: path.resolve(__dirname, '..'), nonce, deep, cacheDir: INSTALL_DIR });
     if (r.ok) {
       if (r.line) console.log(r.line);
       process.exit(0);
@@ -284,10 +285,14 @@ async function main() {
   }
   const { tagName, downloadUrl, sha256Tar, sha256Binary } = meta;
 
+  // VA39 pin の入口検査。キャッシュを採用する前に、期待値が有効でなければここで止める(キャッシュの有無に関わらず検査する)
+  try { bc.assertVa39Entry(meta, { isPatch, unverified: useLatest }); } catch (err) { failAndExit(err); }
+
   // 版付きのキャッシュ先(検証済みは agy-<tag>.<ext>、FORCE_LATEST は unverified/ 配下)
   const { file: tmp } = bc.cachePaths({ dir: INSTALL_DIR, tag: tagName, isPatch, unverified: useLatest });
-  // キャッシュの健全性チェック(サイズ + ELFマジックバイト)。壊れている場合は再取得させる
-  const cacheHit = !forceRefresh && bc.isCacheValid(fs, tmp);
+  // VA39 pin は期待サイズも要求する。キャッシュの健全性チェック(サイズ + ELFマジックバイト)。壊れている場合は再取得させる
+  const expectedSize = isPatch && !useLatest ? meta.expectation.va39_patched_size : undefined;
+  const cacheHit = !forceRefresh && bc.isCacheValid(fs, tmp, { expectedSize });
 
   if (!cacheHit && isPatch) {
     const c = await consent.gateCompat();
@@ -307,7 +312,7 @@ async function main() {
       randomHex: () => require('crypto').randomBytes(4).toString('hex'),
       onPhase: (label) => process.stderr.write('[agy] ' + label + '\n'),
       progress: true,
-    }, { meta: { tagName, downloadUrl, sha256Tar, sha256Binary }, isPatch, file: tmp });
+    }, { meta, isPatch, unverified: useLatest, file: tmp });
   };
 
   const { spawn } = require('child_process');

@@ -6,6 +6,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const bc = require('../lib/binary-cache.js');
+const crypto = require('crypto');
+const { buildExpectation, validateExpectation } = require('../lib/va39-expectation');
+const { VA39_CODES } = require('../lib/errors');
+const PATCHER_REV = require('../lib/patcher-rev.json').rev;
 
 const MIN_SIZE = 10 * 1024 * 1024;
 const ELF_HEAD = [0x7f, 0x45, 0x4c, 0x46];
@@ -18,6 +22,53 @@ const META = {
   sha256Tar: 'aa',
   sha256Binary: 'bb',
 };
+
+// VA39 pin 用の ELF 形式のフィクスチャ。期待値は fakePatch の結果から組み立てる(ensure-binary.test.js と同じ方式)
+const PIN_PATCH_COUNTS = Object.freeze({ ubfx: 3, lsl: 5, mask: 7, mmap: 2, word: 11 });
+const PIN_OFFSET = 100;
+const PIN_FILE = 'agy-1.2.16.va39r2';
+const PIN_LEGACY = 'agy-1.2.16.va39';
+
+function makeElfBin(size = MIN_SIZE + 4096) {
+  const buf = Buffer.alloc(size);
+  Buffer.from(ELF_HEAD).copy(buf);
+  for (let i = 4; i < size; i++) buf[i] = (i * 31 + 13) & 0xff;
+  return buf;
+}
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+// 1 バイト書き換えて counts と main コンテナを返す
+function fakePatch(buf) {
+  buf[PIN_OFFSET] ^= 0xff;
+  return {
+    ...PIN_PATCH_COUNTS,
+    containers: [{ kind: 'main', offset: 0, size: buf.length, counts: { ...PIN_PATCH_COUNTS } }],
+  };
+}
+
+function makePinMeta(bin) {
+  const patched = Buffer.from(bin);
+  const result = fakePatch(patched);
+  const meta = {
+    tagName: '1.2.16',
+    downloadUrl: META.downloadUrl,
+    sha256Tar: 'aa',
+    sha256Binary: sha256Hex(bin),
+    expectation: buildExpectation(result, {
+      patchedSha256: sha256Hex(patched),
+      patchedSize: patched.length,
+      rev: PATCHER_REV,
+    }),
+  };
+  assert.ok(validateExpectation(meta.expectation, { allowLegacy: false }).ok);
+  return meta;
+}
+
+const PIN_BIN = makeElfBin();
+const PIN_META = makePinMeta(PIN_BIN);
 
 // 一時ディレクトリを作り、テスト終了時に削除する
 function mkTmp(t) {
@@ -73,8 +124,8 @@ test('normalizeCacheTag: 不正な形式と非文字列は例外にする', () =
   assert.throws(() => bc.normalizeCacheTag(123), Error);
 });
 
-test('cacheFileName: パッチ版は .va39、非パッチ版は .bin になる', () => {
-  assert.equal(bc.cacheFileName('v1.2.16', true), 'agy-1.2.16.va39');
+test('cacheFileName: パッチ版は .va39r2、非パッチ版は .bin になる', () => {
+  assert.equal(bc.cacheFileName('v1.2.16', true), 'agy-1.2.16.va39r2');
   assert.equal(bc.cacheFileName('1.2.16', false), 'agy-1.2.16.bin');
   assert.throws(() => bc.cacheFileName('x', true), Error);
 });
@@ -82,15 +133,30 @@ test('cacheFileName: パッチ版は .va39、非パッチ版は .bin になる',
 test('cachePaths: 通常の dir と unverified 配下の両方を返す', () => {
   assert.deepEqual(
     bc.cachePaths({ dir: '/c', tag: 'v1.2.16', isPatch: true, unverified: false }),
-    { dir: '/c', file: path.join('/c', 'agy-1.2.16.va39') },
+    {
+      dir: '/c',
+      file: path.join('/c', 'agy-1.2.16.va39r2'),
+      original: path.join('/c', 'agy-1.2.16.bin'),
+      legacy: path.join('/c', 'agy-1.2.16.va39'),
+    },
   );
   assert.deepEqual(
     bc.cachePaths({ dir: '/c', tag: '1.2.16', isPatch: false }),
-    { dir: '/c', file: path.join('/c', 'agy-1.2.16.bin') },
+    {
+      dir: '/c',
+      file: path.join('/c', 'agy-1.2.16.bin'),
+      original: path.join('/c', 'agy-1.2.16.bin'),
+      legacy: path.join('/c', 'agy-1.2.16.va39'),
+    },
   );
   assert.deepEqual(
     bc.cachePaths({ dir: '/c', tag: '1.2.16', isPatch: false, unverified: true }),
-    { dir: path.join('/c', 'unverified'), file: path.join('/c', 'unverified', 'agy-1.2.16.bin') },
+    {
+      dir: path.join('/c', 'unverified'),
+      file: path.join('/c', 'unverified', 'agy-1.2.16.bin'),
+      original: path.join('/c', 'unverified', 'agy-1.2.16.bin'),
+      legacy: path.join('/c', 'unverified', 'agy-1.2.16.va39'),
+    },
   );
 });
 
@@ -147,6 +213,15 @@ test('isCacheValid: 有効な場合も fd を閉じる', () => {
 
 // --- installBinary ---
 
+// VA39 pin 用の deps。download は毎回新しい buf を返し、patch は fakePatch を使う
+function pinDeps(over = {}) {
+  return installDeps({
+    download: async () => Buffer.from(PIN_BIN),
+    patch: (buf) => fakePatch(buf),
+    ...over,
+  });
+}
+
 function installDeps(over = {}) {
   return {
     download: async () => Buffer.from('NEW-BINARY'),
@@ -155,7 +230,7 @@ function installDeps(over = {}) {
       mkdirSync: fs.mkdirSync,
       writeFileSync: fs.writeFileSync,
       renameSync: fs.renameSync,
-      rmSync: fs.rmSync,
+      unlinkSync: fs.unlinkSync,
     },
     pid: 1234,
     randomHex: () => 'abcdef',
@@ -164,20 +239,20 @@ function installDeps(over = {}) {
 }
 
 // 既存の file・別ファイル・他プロセスの一時ファイルを置いた状態を作る
-function plantExisting(t) {
+function plantExisting(t, name = 'agy-1.2.16.bin') {
   const dir = mkTmp(t);
-  const file = path.join(dir, 'agy-1.2.16.bin');
+  const file = path.join(dir, name);
   fs.writeFileSync(file, 'OLD');
   fs.writeFileSync(path.join(dir, 'other.txt'), 'keep');
-  fs.writeFileSync(path.join(dir, 'agy-1.2.16.bin.999.zzz.tmp'), 'partial');
+  fs.writeFileSync(path.join(dir, name + '.999.zzz.tmp'), 'partial');
   return { dir, file };
 }
 
-async function assertFailureLeavesDir(t, over, error, isPatch = false) {
-  const { dir, file } = plantExisting(t);
+async function assertFailureLeavesDir(t, over, error, { meta = META, isPatch = false, unverified = false, name } = {}) {
+  const { dir, file } = plantExisting(t, name);
   const before = fs.readdirSync(dir).sort();
   await assert.rejects(
-    bc.installBinary(installDeps(over), { meta: META, isPatch, file }),
+    bc.installBinary(installDeps(over), { meta, isPatch, unverified, file }),
     (e) => e === error,
   );
   assert.deepEqual(fs.readdirSync(dir).sort(), before);
@@ -192,7 +267,8 @@ test('installBinary: download 失敗では既存ファイルと他のファイ�
 
 test('installBinary: patch 失敗では既存ファイルを変えない', async (t) => {
   const err = new Error('patch failed');
-  await assertFailureLeavesDir(t, { patch: () => { throw err; } }, err, true);
+  const over = { download: async () => Buffer.from(PIN_BIN), patch: () => { throw err; } };
+  await assertFailureLeavesDir(t, over, err, { meta: PIN_META, isPatch: true, name: PIN_FILE });
 });
 
 test('installBinary: 一時ファイル書き込みで失敗しても自分の tmp だけを消す', async (t) => {
@@ -211,12 +287,12 @@ test('installBinary: rename 失敗では既存ファイルを変えず、自分�
   await assertFailureLeavesDir(t, { fs: fsDeps }, err);
 });
 
-test('installBinary: 後始末の rmSync が失敗しても元のエラーを返す', async (t) => {
+test('installBinary: 後始末の unlinkSync が失敗しても元のエラーを返す', async (t) => {
   const err = new Error('rename failed');
   const fsDeps = {
     ...installDeps().fs,
     renameSync: () => { throw err; },
-    rmSync: () => { throw new Error('rm failed'); },
+    unlinkSync: () => { throw new Error('unlink failed'); },
   };
   const { file } = plantExisting(t);
   await assert.rejects(
@@ -237,18 +313,127 @@ test('installBinary: 成功時は配置して file を返し、他のファイ�
   assert.deepEqual(fs.readdirSync(path.join(dir, 'nested')), ['agy-1.2.16.bin']);
 });
 
-test('installBinary: パッチ版は buf を in-place で書き換えた内容を書き出す', async (t) => {
+test('installBinary: パッチ版は in-place で書き換えた buf を、期待値と一致した内容で書き出す', async (t) => {
   const dir = mkTmp(t);
-  const file = path.join(dir, 'agy-1.2.16.va39');
-  let patched = null;
-  const patchCounts = { ubfx: 1, lsl: 0, mask: 0, mmap: 0, word: 0 };
-  const deps = installDeps({
-    patch: (buf) => { patched = buf; buf[0] = 0x58; return patchCounts; },
-  });
-  await bc.installBinary(deps, { meta: META, isPatch: true, file });
-  assert.ok(Buffer.isBuffer(patched));
+  const file = path.join(dir, PIN_FILE);
+  const result = await bc.installBinary(pinDeps(), { meta: PIN_META, isPatch: true, unverified: false, file });
+  assert.equal(result, file);
   // 戻り値の counts ではなく、書き換え後の buf が配置されること
-  assert.equal(fs.readFileSync(file, 'utf8'), 'XEW-BINARY');
+  assert.equal(sha256Hex(fs.readFileSync(file)), PIN_META.expectation.va39_patched_sha256);
+  assert.equal(fs.statSync(file).size, PIN_BIN.length);
+});
+
+test('installBinary: VA39 pin で期待値が不正なら download 前に止まり、何も書かない', async (t) => {
+  const dir = mkTmp(t);
+  const file = path.join(dir, PIN_FILE);
+  let downloads = 0;
+  const deps = pinDeps({ download: async () => { downloads++; return Buffer.from(PIN_BIN); } });
+  await assert.rejects(
+    bc.installBinary(deps, { meta: META, isPatch: true, unverified: false, file }),
+    (e) => e.code === VA39_CODES.EXPECTATION_MISSING,
+  );
+  assert.equal(downloads, 0);
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+test('installBinary: VA39 pin の照合不一致 (rev/counts/breakdown/SHA/size) は COUNT_MISMATCH で止まり、file も tmp も作らない', async (t) => {
+  const cases = {
+    rev: pinDeps({ patcherRev: PATCHER_REV + 1 }),
+    counts: pinDeps({ patch: (buf) => { const r = fakePatch(buf); return { ...r, ubfx: r.ubfx + 1 }; } }),
+    breakdown: pinDeps({
+      patch: (buf) => {
+        const r = fakePatch(buf);
+        const c = r.containers[0];
+        return { ...r, containers: [{ ...c, counts: { ...c.counts, lsl: c.counts.lsl + 1 } }] };
+      },
+    }),
+    sha: pinDeps({ patch: (buf) => { const r = fakePatch(buf); buf[PIN_OFFSET + 1] ^= 0x01; return r; } }),
+    size: pinDeps({ download: async () => Buffer.concat([Buffer.from(PIN_BIN), Buffer.alloc(1)]) }),
+  };
+  for (const [name, deps] of Object.entries(cases)) {
+    const dir = mkTmp(t);
+    const file = path.join(dir, PIN_FILE);
+    await assert.rejects(
+      bc.installBinary(deps, { meta: PIN_META, isPatch: true, unverified: false, file }),
+      (e) => e.code === VA39_CODES.COUNT_MISMATCH,
+      name,
+    );
+    assert.deepEqual(fs.readdirSync(dir), [], name);
+  }
+});
+
+test('installBinary: VA39 pin の照合不一致では既存の pin ファイルと旧 .va39 を変えない', async (t) => {
+  const { dir, file } = plantExisting(t, PIN_FILE);
+  fs.writeFileSync(path.join(dir, PIN_LEGACY), 'LEGACY');
+  const before = fs.readdirSync(dir).sort();
+  await assert.rejects(
+    bc.installBinary(pinDeps({ patcherRev: PATCHER_REV + 1 }), { meta: PIN_META, isPatch: true, unverified: false, file }),
+    (e) => e.code === VA39_CODES.COUNT_MISMATCH,
+  );
+  assert.deepEqual(fs.readdirSync(dir).sort(), before);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'OLD');
+  assert.equal(fs.readFileSync(path.join(dir, PIN_LEGACY), 'utf8'), 'LEGACY');
+});
+
+test('installBinary: unverified は小さすぎる・ELF でない buf を PATCH_UNSUPPORTED で止め、何も書かない', async (t) => {
+  const small = Buffer.alloc(1024);
+  Buffer.from(ELF_HEAD).copy(small);
+  const nonElf = Buffer.alloc(MIN_SIZE + 4096, 0x41);
+  for (const [name, bin] of Object.entries({ small, nonElf })) {
+    const dir = mkTmp(t);
+    const file = path.join(dir, 'agy-1.2.16.bin');
+    const deps = installDeps({ download: async () => Buffer.from(bin) });
+    await assert.rejects(
+      bc.installBinary(deps, { meta: META, isPatch: true, unverified: true, file }),
+      (e) => e.code === VA39_CODES.PATCH_UNSUPPORTED,
+      name,
+    );
+    assert.deepEqual(fs.readdirSync(dir), [], name);
+  }
+});
+
+test('installBinary: unverified で ELF かつ十分な大きさなら期待値なしで配置し、旧 .va39 は消さない', async (t) => {
+  const dir = mkTmp(t);
+  const file = path.join(dir, 'agy-1.2.16.bin');
+  fs.writeFileSync(path.join(dir, PIN_LEGACY), 'LEGACY');
+  const deps = installDeps({ download: async () => Buffer.from(PIN_BIN) });
+  const result = await bc.installBinary(deps, { meta: META, isPatch: true, unverified: true, file });
+  assert.equal(result, file);
+  assert.equal(sha256Hex(fs.readFileSync(file)), sha256Hex(PIN_BIN));
+  assert.equal(fs.readFileSync(path.join(dir, PIN_LEGACY), 'utf8'), 'LEGACY');
+});
+
+test('installBinary: VA48 (isPatch false) は検証をスキップし、従来どおり保存する', async (t) => {
+  const dir = mkTmp(t);
+  const file = path.join(dir, 'agy-1.2.16.bin');
+  let patched = false;
+  const deps = installDeps({ patch: () => { patched = true; return {}; } });
+  const result = await bc.installBinary(deps, { meta: META, isPatch: false, unverified: false, file });
+  assert.equal(result, file);
+  assert.equal(patched, false);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'NEW-BINARY');
+});
+
+test('installBinary: VA39 pin の配置に成功したら旧 .va39 を削除する', async (t) => {
+  const dir = mkTmp(t);
+  const file = path.join(dir, PIN_FILE);
+  fs.writeFileSync(path.join(dir, PIN_LEGACY), 'LEGACY');
+  const result = await bc.installBinary(pinDeps(), { meta: PIN_META, isPatch: true, unverified: false, file });
+  assert.equal(result, file);
+  assert.equal(fs.existsSync(path.join(dir, PIN_LEGACY)), false);
+  assert.equal(fs.statSync(file).size, PIN_BIN.length);
+});
+
+test('installBinary: 旧 .va39 の削除が失敗しても成功として file を返す', async (t) => {
+  const dir = mkTmp(t);
+  const file = path.join(dir, PIN_FILE);
+  fs.writeFileSync(path.join(dir, PIN_LEGACY), 'LEGACY');
+  const base = pinDeps();
+  const deps = { ...base, fs: { ...base.fs, unlinkSync: () => { throw new Error('unlink failed'); } } };
+  const result = await bc.installBinary(deps, { meta: PIN_META, isPatch: true, unverified: false, file });
+  assert.equal(result, file);
+  assert.equal(fs.statSync(file).size, PIN_BIN.length);
+  assert.equal(fs.readFileSync(path.join(dir, PIN_LEGACY), 'utf8'), 'LEGACY');
 });
 
 test('installBinary: 一時ファイル名は tmpPathFor と同じ規則で作る', async (t) => {
@@ -271,7 +456,7 @@ function syncDeps(over = {}) {
   const out = [];
   const err = [];
   const deps = {
-    meta: { ...META },
+    meta: { ...PIN_META },
     dir: '/virtual/cache',
     isPatch: true,
     hasConsent: (key) => { calls.push('hasConsent:' + key); return true; },
@@ -307,9 +492,9 @@ test('syncBinary: loader が無ければ error にして案内する', async () 
 });
 
 test('syncBinary: キャッシュが有効なら current。掃除だけ行い、取得や互換確認はしない', async () => {
-  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps() });
+  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }) });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'current', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39'), deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(r, { status: 'current', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39r2'), deleted: { count: 0, bytes: 0 } });
   assert.deepEqual(out, []);
   assert.deepEqual(err, []);
   assert.deepEqual(calls, ['hasConsent:download', 'loaderExists', 'prune:1.2.16']);
@@ -323,7 +508,7 @@ test('syncBinary: 手動削除候補があれば一覧・合計・案内を出�
     ],
     total: 12,
   };
-  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps(), listManualCleanup: () => listing });
+  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }), listManualCleanup: () => listing });
   const r = await bc.syncBinary(deps);
   assert.equal(r.status, 'current');
   // 手動削除の案内は出さず、listManualCleanup も呼ばない
@@ -346,10 +531,10 @@ test('syncBinary: パッチ版で互換同意が無く、拒否されたら skip
 test('syncBinary: パッチ版で互換同意済みなら confirmCompat を呼ばず取得する', async () => {
   const { deps, calls, out } = syncDeps({ fsDeps: fakeFsDeps({ exists: false }) });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39'), deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39r2'), deleted: { count: 0, bytes: 0 } });
   assert.deepEqual(calls, [
     'hasConsent:download', 'loaderExists', 'hasConsent:compat',
-    'install:' + path.join('/virtual/cache', 'agy-1.2.16.va39'),
+    'install:' + path.join('/virtual/cache', 'agy-1.2.16.va39r2'),
     'prune:1.2.16',
   ]);
   assert.deepEqual(out, []);
@@ -361,7 +546,7 @@ test('syncBinary: パッチ版で互換同意が無ければ確認し、承諾�
   assert.equal(r.status, 'synced');
   assert.deepEqual(calls, [
     'hasConsent:download', 'loaderExists', 'hasConsent:compat', 'confirmCompat',
-    'install:' + path.join('/virtual/cache', 'agy-1.2.16.va39'),
+    'install:' + path.join('/virtual/cache', 'agy-1.2.16.va39r2'),
     'prune:1.2.16',
   ]);
 });
@@ -391,13 +576,41 @@ test('syncBinary: 取得に失敗したら error。掃除と案内はしない',
 test('syncBinary: prune が例外を投げても synced の結果は変わらない', async () => {
   const { deps, out } = syncDeps({ prune: () => { throw new Error('prune boom'); } });
   const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39'), deleted: { count: 0, bytes: 0 } });
+  assert.deepEqual(r, { status: 'synced', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39r2'), deleted: { count: 0, bytes: 0 } });
   assert.deepEqual(out, []);
 });
 
 test('syncBinary: 不正な tagName は cachePaths の例外をそのまま返す', async () => {
   const { deps } = syncDeps({ meta: { ...META, tagName: '2.x' } });
   await assert.rejects(bc.syncBinary(deps), Error);
+});
+
+test('syncBinary: VA39 の期待値が不正なら error(VA39_EXPECTATION_MISSING)。キャッシュが有効に見えても採用せず、取得も掃除もしない', async () => {
+  const { deps, calls } = syncDeps({
+    meta: { ...PIN_META, expectation: undefined },
+    fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }),
+  });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'error');
+  assert.equal(r.reason, 'VA39_EXPECTATION_MISSING');
+  assert.equal(calls.some((c) => c.startsWith('install:')), false);
+  assert.equal(calls.some((c) => c.startsWith('prune:')), false);
+});
+
+test('syncBinary: VA39 の pin が有効でも、ELF が合ってサイズが期待と違うキャッシュは current にならず取得に進む', async () => {
+  const { deps, calls } = syncDeps({
+    fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size + 1 }),
+  });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'synced');
+  assert.equal(calls.filter((c) => c.startsWith('install:')).length, 1);
+});
+
+test('syncBinary: 非パッチ版(VA48)は期待値が無くても免除され、従来どおり扱う', async () => {
+  const { deps, calls } = syncDeps({ isPatch: false, meta: { ...META }, fsDeps: fakeFsDeps() });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'current');
+  assert.equal(calls.some((c) => c.startsWith('install:')), false);
 });
 
 // --- prune ---
@@ -600,4 +813,55 @@ test('listManualCleanup: dir を読めなければ空の結果を返す', () => 
     statSync: () => { throw new Error('ENOENT'); },
   }, { dir: '/nonexistent' });
   assert.deepEqual(r, { files: [], total: 0 });
+});
+
+// --- S2a: 名前・パス・ロックファイルの扱い ---
+
+test('cacheFileName: 新世代は .va39r2、原本は .bin。タグの v 付きも同じ名前になる', () => {
+  assert.equal(bc.cacheFileName('1.2.16', true), 'agy-1.2.16.va39r2');
+  assert.equal(bc.cacheFileName('1.2.16', false), 'agy-1.2.16.bin');
+  assert.equal(bc.cacheFileName('v1.2.16', true), 'agy-1.2.16.va39r2');
+});
+
+test('originalFileName / legacyPatchedFileName: 各世代の名前を返す', () => {
+  assert.equal(bc.originalFileName('1.2.16'), 'agy-1.2.16.bin');
+  assert.equal(bc.legacyPatchedFileName('1.2.16'), 'agy-1.2.16.va39');
+  // normalizeCacheTag を通すので v 付きでも同じ名前
+  assert.equal(bc.originalFileName('v1.2.16'), 'agy-1.2.16.bin');
+  assert.equal(bc.legacyPatchedFileName('v1.2.16'), 'agy-1.2.16.va39');
+  // 不正なタグは拒否する
+  assert.throws(() => bc.originalFileName('../x'));
+  assert.throws(() => bc.legacyPatchedFileName('../x'));
+});
+
+test('cachePaths: file・original・legacy を同じ dir の絶対パスで返す', () => {
+  const p = bc.cachePaths({ dir: '/d', tag: '1.2.16', isPatch: true });
+  assert.equal(p.dir, '/d');
+  assert.equal(p.file, path.join('/d', 'agy-1.2.16.va39r2'));
+  assert.equal(p.original, path.join('/d', 'agy-1.2.16.bin'));
+  assert.equal(p.legacy, path.join('/d', 'agy-1.2.16.va39'));
+  // 非パッチ版でも original・legacy は同じ
+  const q = bc.cachePaths({ dir: '/d', tag: '1.2.16', isPatch: false });
+  assert.equal(q.file, path.join('/d', 'agy-1.2.16.bin'));
+  assert.equal(q.original, p.original);
+  assert.equal(q.legacy, p.legacy);
+});
+
+test('prune: .va39r2・.va39・.bin を同じタグとして扱い、pin のタグは3種とも残す', (t) => {
+  const dir = writeFiles(mkTmp(t), {
+    'agy-1.2.16.va39r2': 100, 'agy-1.2.16.va39': 100, 'agy-1.2.16.bin': 100,
+    'agy-1.3.0.va39r2': 300, 'agy-1.3.0.bin': 300,
+    'agy-1.1.0.va39r2': 250, 'agy-1.1.0.va39': 250, 'agy-1.1.0.bin': 250,
+    'agy-1.0.0.va39': 50,
+  });
+  const { deps } = pruneDeps();
+  const deleted = bc.prune(deps, { dir, pinTag: '1.2.16' });
+  // 1.3.0 が最新なので残し、1.1.0 と 1.0.0 は版ごとすべて消す
+  assert.deepEqual(deleted.files.sort(), [
+    'agy-1.0.0.va39', 'agy-1.1.0.bin', 'agy-1.1.0.va39', 'agy-1.1.0.va39r2',
+  ]);
+  assert.deepEqual(fs.readdirSync(dir).sort(), [
+    'agy-1.2.16.bin', 'agy-1.2.16.va39', 'agy-1.2.16.va39r2',
+    'agy-1.3.0.bin', 'agy-1.3.0.va39r2',
+  ]);
 });

@@ -5,10 +5,18 @@ const https = require('https');
 const { verifyBinary } = require('./lib/agy-binary-verify');
 const { normalizeVersion, getTokyoDate } = require('./lib/version-utils');
 const { applyVA39Patch } = require('../lib/patcher');
+const { readPatcherRev, buildExpectation, compareExpectation } = require('./lib/va39-baseline');
 const fs = require('fs');
 
 const VERIFIED_CONFIG_PATH = './config/agy-verified-versions.json';
 const ASSET_NAME = 'agy_cli_linux_arm64.tar.gz';
+const EXPECTATION_KEYS = [
+  'va39_patcher_rev',
+  'va39_patch_counts',
+  'va39_patch_breakdown',
+  'va39_patched_sha256',
+  'va39_patched_size',
+];
 
 function httpsGet(url) {
   return new Promise((resolve, reject) => {
@@ -38,6 +46,100 @@ function httpsGet(url) {
   });
 }
 
+/**
+ * release の状態を検査し、対象 asset を返す。ダウンロード前に呼ぶこと(ネットワークは使わない)。
+ * draft / prerelease / asset 不在なら Error を投げる。
+ */
+function assertReleaseDownloadable(version, releaseMeta) {
+  // Validate release state
+  if (releaseMeta.draft) {
+    throw new Error(`Release ${version} is a draft, skipping`);
+  }
+  if (releaseMeta.prerelease) {
+    throw new Error(`Release ${version} is a prerelease, skipping`);
+  }
+
+  // Find asset with exact name match
+  const asset = releaseMeta.assets.find(a => a.name === ASSET_NAME);
+  if (!asset) {
+    throw new Error(`Asset '${ASSET_NAME}' not found in release ${version}`);
+  }
+  return asset;
+}
+
+/**
+ * release 情報とバイナリ情報から candidate meta を組み立てる(ネットワークは使わない)。
+ * verifiedConfig は読めなかった場合 null。binBuf は書き換えない。
+ */
+function buildCandidateMeta({ version, releaseMeta, tarSha256, binSha256, binBuf, verifiedConfig, tokyoDate }) {
+  // Re-check release state and find the asset (same checks as before download)
+  const asset = assertReleaseDownloadable(version, releaseMeta);
+
+  // Apply VA39 patch to a copy and build the expectation fields
+  const binBufCopy = Buffer.from(binBuf);
+  const patchResult = applyVA39Patch(binBufCopy);
+  const expectation = buildExpectation({
+    patchResult,
+    patchedBuf: binBufCopy,
+    rev: readPatcherRev(),
+  });
+
+  // Baseline: the expectation fields present in the verified config (none if unreadable)
+  const baselineFields = {};
+  if (verifiedConfig && typeof verifiedConfig === 'object') {
+    for (const k of EXPECTATION_KEYS) {
+      if (k in verifiedConfig) baselineFields[k] = verifiedConfig[k];
+    }
+  }
+  const comparison = compareExpectation(baselineFields, expectation);
+
+  // Normalize version (strip 'v' prefix if present)
+  const normalizedVersion = normalizeVersion(version);
+
+  return {
+    tag_name: normalizedVersion,
+    download_url: asset.browser_download_url,
+    sha256_tar: tarSha256,
+    sha256_binary: binSha256,
+    ...expectation,
+    va39_baseline_comparison: { status: comparison.status, differences: comparison.differences },
+    release_id: releaseMeta.id,
+    asset_id: asset.id,
+    asset_updated_at: asset.updated_at,
+    source_repo: 'google-antigravity/antigravity-cli',
+    detected_date: tokyoDate,
+    status: 'pending_device_verification',
+  };
+}
+
+/**
+ * 取得・検査・ダウンロード・候補組み立てを行う。外部入出力は注入する。
+ * 検査(draft / prerelease / asset 不在)はダウンロードより前に行い、拒否時は download を呼ばない。
+ */
+async function runCandidate({ version, fetchRelease, download, readVerifiedConfig, tokyoDate }) {
+  // Fetch release info from GitHub API
+  const releaseMeta = await fetchRelease(version);
+
+  // Validate release state and look up the asset before any download
+  const asset = assertReleaseDownloadable(version, releaseMeta);
+
+  // Verify binary and compute SHA256
+  const { tarSha256, binSha256, binBuf } = await download(asset.browser_download_url);
+
+  // Load baseline from verified config (null when unreadable: first time setup)
+  const verifiedConfig = readVerifiedConfig();
+
+  return buildCandidateMeta({
+    version,
+    releaseMeta,
+    tarSha256,
+    binSha256,
+    binBuf,
+    verifiedConfig,
+    tokyoDate,
+  });
+}
+
 async function main() {
   const version = process.argv[2];
   if (!version) {
@@ -46,72 +148,24 @@ async function main() {
   }
 
   try {
-    // Fetch release info from GitHub API
-    const apiUrl = `https://api.github.com/repos/google-antigravity/antigravity-cli/releases/tags/${version}`;
-    const releaseMeta = JSON.parse((await httpsGet(apiUrl)).toString());
-
-    // Validate release state
-    if (releaseMeta.draft) {
-      throw new Error(`Release ${version} is a draft, skipping`);
-    }
-    if (releaseMeta.prerelease) {
-      throw new Error(`Release ${version} is a prerelease, skipping`);
-    }
-
-    // Find asset with exact name match
-    const asset = releaseMeta.assets.find(a => a.name === ASSET_NAME);
-    if (!asset) {
-      throw new Error(`Asset '${ASSET_NAME}' not found in release ${version}`);
-    }
-
-    const downloadUrl = asset.browser_download_url;
-    const assetId = asset.id;
-    const assetUpdatedAt = asset.updated_at;
-    const releaseId = releaseMeta.id;
-
-    // Verify binary and compute SHA256
-    const { tarSha256, binSha256, binBuf } = await verifyBinary(downloadUrl);
-
-    // Apply VA39 patch to a copy to get patch counts
-    const binBufCopy = Buffer.from(binBuf);
-    const va39PatchCounts = applyVA39Patch(binBufCopy);
-
-    // Load baseline from verified config to detect regressions
-    let va39PatchRegression = [];
-    try {
-      const verifiedConfig = JSON.parse(fs.readFileSync(VERIFIED_CONFIG_PATH, 'utf8'));
-      if (verifiedConfig.va39_patch_counts) {
-        const baseline = verifiedConfig.va39_patch_counts;
-        for (const [pattern, count] of Object.entries(baseline)) {
-          if (count > 0 && va39PatchCounts[pattern] === 0) {
-            va39PatchRegression.push(`${pattern}: ${count} -> 0`);
-          }
+    const candidateMeta = await runCandidate({
+      version,
+      fetchRelease: async (v) => {
+        const apiUrl = `https://api.github.com/repos/google-antigravity/antigravity-cli/releases/tags/${v}`;
+        return JSON.parse((await httpsGet(apiUrl)).toString());
+      },
+      download: verifyBinary,
+      readVerifiedConfig: () => {
+        try {
+          return JSON.parse(fs.readFileSync(VERIFIED_CONFIG_PATH, 'utf8'));
+        } catch (e) {
+          // If we can't read baseline, just continue
+          return null;
         }
-      }
-    } catch (e) {
-      // If we can't read baseline, just continue (first time setup)
-    }
-
-    // Current date in Asia/Tokyo timezone
-    const tokyoDate = getTokyoDate();
-
-    // Normalize version (strip 'v' prefix if present)
-    const normalizedVersion = normalizeVersion(version);
-
-    const candidateMeta = {
-      tag_name: normalizedVersion,
-      download_url: downloadUrl,
-      sha256_tar: tarSha256,
-      sha256_binary: binSha256,
-      va39_patch_counts: va39PatchCounts,
-      va39_patch_regression: va39PatchRegression,
-      release_id: releaseId,
-      asset_id: assetId,
-      asset_updated_at: assetUpdatedAt,
-      source_repo: 'google-antigravity/antigravity-cli',
-      detected_date: tokyoDate,
-      status: 'pending_device_verification',
-    };
+      },
+      // Current date in Asia/Tokyo timezone
+      tokyoDate: getTokyoDate(),
+    });
 
     // Output JSON to stdout
     console.log(JSON.stringify(candidateMeta, null, 2));
@@ -121,4 +175,8 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { assertReleaseDownloadable, buildCandidateMeta, runCandidate };

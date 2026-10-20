@@ -6,6 +6,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const bc = require('../lib/binary-cache.js');
+const crypto = require('crypto');
+const { buildExpectation, validateExpectation } = require('../lib/va39-expectation');
+const PATCHER_REV = require('../lib/patcher-rev.json').rev;
 
 const MIN_SIZE = 10 * 1024 * 1024;
 const ELF_HEAD = [0x7f, 0x45, 0x4c, 0x46];
@@ -18,6 +21,55 @@ const META = {
   sha256Tar: 'aa',
   sha256Binary: 'bb',
 };
+
+// VA39 pin 用の ELF 形式のフィクスチャ。期待値は fakePin の結果から組み立てる
+const PIN_PATCH_COUNTS = Object.freeze({ ubfx: 3, lsl: 5, mask: 7, mmap: 2, word: 11 });
+const PIN_OFFSET = 100;
+const PIN_FILE = 'agy-1.2.16.va39r2';
+
+function makePinBin() {
+  const size = MIN_SIZE + 4096;
+  const buf = Buffer.alloc(size);
+  Buffer.from(ELF_HEAD).copy(buf);
+  for (let i = 4; i < size; i++) buf[i] = (i * 31 + 13) & 0xff;
+  return buf;
+}
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+// 1 バイト書き換えて counts と main コンテナを返す
+function fakePin(buf) {
+  buf[PIN_OFFSET] ^= 0xff;
+  return {
+    ...PIN_PATCH_COUNTS,
+    containers: [{ kind: 'main', offset: 0, size: buf.length, counts: { ...PIN_PATCH_COUNTS } }],
+  };
+}
+
+function makePinMeta(bin) {
+  const patched = Buffer.from(bin);
+  const result = fakePin(patched);
+  const meta = {
+    tagName: '1.2.16',
+    downloadUrl: META.downloadUrl,
+    sha256Tar: 'aa',
+    sha256Binary: sha256Hex(bin),
+    expectation: buildExpectation(result, {
+      patchedSha256: sha256Hex(patched),
+      patchedSize: patched.length,
+      rev: PATCHER_REV,
+    }),
+  };
+  if (!validateExpectation(meta.expectation, { allowLegacy: false }).ok) {
+    throw new Error('フィクスチャの期待値が不正');
+  }
+  return meta;
+}
+
+const PIN_BIN = makePinBin();
+const PIN_META = makePinMeta(PIN_BIN);
 
 // 一時ディレクトリを作り、テスト終了時に削除する
 function mkTmp(t) {
@@ -71,7 +123,7 @@ function syncDeps(over = {}) {
   const out = [];
   const err = [];
   const deps = {
-    meta: { ...META },
+    meta: { ...PIN_META },
     dir: '/virtual/cache',
     isPatch: true,
     hasConsent: (key) => { calls.push('hasConsent:' + key); return true; },
@@ -98,6 +150,7 @@ function installDeps(over = {}) {
       writeFileSync: fs.writeFileSync,
       renameSync: fs.renameSync,
       rmSync: fs.rmSync,
+      unlinkSync: fs.unlinkSync,
     },
     pid: 1234,
     randomHex: () => 'abcdef',
@@ -227,11 +280,11 @@ test('prune: unlink が失敗したファイルは files・count・bytes に含�
 // --- syncBinary ---
 
 test('syncBinary: キャッシュが有効なら current。出力は空', async () => {
-  const { deps, out, err } = syncDeps({ fsDeps: fakeFsDeps() });
+  const { deps, out, err } = syncDeps({ fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }) });
   const r = await bc.syncBinary(deps);
   assert.deepEqual(r, {
     status: 'current', detail: '', tag: '1.2.16',
-    file: path.join('/virtual/cache', 'agy-1.2.16.va39'),
+    file: path.join('/virtual/cache', 'agy-1.2.16.va39r2'),
     deleted: { count: 0, bytes: 0 },
   });
   assert.deepEqual(out, []);
@@ -271,7 +324,7 @@ test('syncBinary: 互換の確認を拒否されたら skipped(compat_declined)�
     status: 'skipped', reason: 'compat_declined', detail: '', tag: '1.2.16',
     deleted: { count: 0, bytes: 0 },
   });
-  assert.equal(calls.includes('install:' + path.join('/virtual/cache', 'agy-1.2.16.va39')), false);
+  assert.equal(calls.includes('install:' + path.join('/virtual/cache', 'agy-1.2.16.va39r2')), false);
   assert.deepEqual(out, []);
   assert.deepEqual(err, []);
 });
@@ -319,10 +372,14 @@ test('syncBinary: 取得の失敗で error.code が無ければ reason は insta
 
 test('installBinary: パッチ版は 互換調整 → 保存 の順に onPhase を呼ぶ', async (t) => {
   const dir = mkTmp(t);
-  const file = path.join(dir, 'agy-1.2.16.va39');
+  const file = path.join(dir, PIN_FILE);
   const phases = [];
-  await bc.installBinary(installDeps({ onPhase: (m) => phases.push(m) }), {
-    meta: META, isPatch: true, file,
+  await bc.installBinary(installDeps({
+    download: async () => Buffer.from(PIN_BIN),
+    patch: fakePin,
+    onPhase: (m) => phases.push(m),
+  }), {
+    meta: PIN_META, isPatch: true, unverified: false, file,
   });
   assert.deepEqual(phases, ['互換調整をしています...', '保存しています...']);
 });
@@ -414,16 +471,16 @@ test('installBinary: download に渡す項目が未定義でも例外になら�
 
 test('installBinary: 呼出し順は download → 互換調整 → 保存 の onPhase のまま変わらない', async (t) => {
   const dir = mkTmp(t);
-  const file = path.join(dir, 'agy-1.2.16.bin');
+  const file = path.join(dir, PIN_FILE);
   const calls = [];
   const deps = installDeps({
-    download: async () => { calls.push('download'); return Buffer.from('NEW-BINARY'); },
-    patch: () => { calls.push('patch'); return { ubfx: 0, lsl: 0, mask: 0, mmap: 0, word: 0 }; },
+    download: async () => { calls.push('download'); return Buffer.from(PIN_BIN); },
+    patch: (buf) => { calls.push('patch'); return fakePin(buf); },
     onPhase: (m) => calls.push(`phase:${m}`),
     progress: () => {},
     stallMs: 1000,
   });
-  await bc.installBinary(deps, { meta: META, isPatch: true, file });
+  await bc.installBinary(deps, { meta: PIN_META, isPatch: true, unverified: false, file });
   assert.deepEqual(calls, [
     'download',
     'phase:互換調整をしています...',
