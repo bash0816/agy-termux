@@ -485,3 +485,74 @@ test('(e) --deep: 両方の SHA が一致すれば ok になる', () => {
   assert.deepStrictEqual(r.problems, [])
   assert.ok(spy.opens >= 2)
 })
+
+// 修正2(B3 回帰): counts だけを持つ旧スキーマ pin(origin/main の実 pin の形)を self-check が拒否しないこと
+// origin/main の実 pin から notes と ID 類を省き、形(counts あり・新4欄なし)を同じにしたリテラル
+const ORIGIN_PIN_SHAPE = {
+  tag_name: '1.3.2',
+  download_url: 'https://github.com/google-antigravity/antigravity-cli/releases/download/1.3.2/agy_cli_linux_arm64.tar.gz',
+  sha256_tar: 'f904ce9ca50ee7d2010bd8063a864ce37c31585c710af451bab66be6e4b59a74',
+  sha256_binary: 'bc66d5cccc40791da0d5e5d93a4140a6d961cf37b4d216aaf52918bb9bcad765',
+  va39_patch_counts: { ubfx: 4, lsl: 19, mask: 0, mmap: 6, word: 7 },
+  release_state: 'stable',
+  verified_date: '2026-10-14',
+}
+
+// package.json(1.2.16)と版を合わせた旧形式の pin
+const LEGACY_PIN = { ...ORIGIN_PIN_SHAPE, tag_name: '1.2.16' }
+
+test('(修正2 a) origin/main と同じ旧形式(counts あり・新4欄なし)の pin は ok で、expectation は積まれない', () => {
+  const r = withPin(LEGACY_PIN)
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+  assert.ok(!r.problems.includes('expectation'))
+})
+
+test('(修正2 b) counts の形式が不正(数値でなく文字列)の旧 pin は expectation になる', () => {
+  const pin = { ...LEGACY_PIN, va39_patch_counts: { ...LEGACY_PIN.va39_patch_counts, ubfx: '4' } }
+  const r = withPin(pin)
+  assert.strictEqual(r.ok, false)
+  assert.deepStrictEqual(r.problems, ['expectation'])
+})
+
+// 新4欄の値(1〜3欄だけ入れるテスト用。形式の正しさは問わない。欄が有るかどうかだけで判定される)
+const NEW_FIELD_VALUES = {
+  va39_patcher_rev: 2,
+  va39_patch_breakdown: [],
+  va39_patched_sha256: 'a'.repeat(64),
+  va39_patched_size: 1000,
+}
+
+const PARTIAL_NEW_KEYS = [
+  ['va39_patcher_rev'],
+  ['va39_patch_breakdown'],
+  ['va39_patched_sha256'],
+  ['va39_patched_size'],
+  ['va39_patcher_rev', 'va39_patched_sha256', 'va39_patched_size'],
+  ['va39_patch_breakdown', 'va39_patched_sha256', 'va39_patched_size'],
+]
+
+for (const keys of PARTIAL_NEW_KEYS) {
+  test(`(修正2 c) 新4欄のうち ${keys.join(', ')} だけ有る pin は expectation になる`, () => {
+    const pin = { ...LEGACY_PIN }
+    for (const k of keys) pin[k] = NEW_FIELD_VALUES[k]
+    const r = withPin(pin)
+    assert.strictEqual(r.ok, false)
+    assert.deepStrictEqual(r.problems, ['expectation'])
+  })
+}
+
+test('(修正2 d) 新4欄が全部有る正しい pin は ok', () => {
+  const counts = { ubfx: 1, lsl: 2, mask: 0, mmap: 0, word: 0 }
+  const pin = {
+    ...LEGACY_PIN,
+    va39_patch_counts: counts,
+    va39_patcher_rev: 2,
+    va39_patch_breakdown: [{ kind: 'main', offset: 0, size: 1000, counts: { ...counts } }],
+    va39_patched_sha256: 'a'.repeat(64),
+    va39_patched_size: 1000,
+  }
+  const r = withPin(pin)
+  assert.strictEqual(r.ok, true)
+  assert.deepStrictEqual(r.problems, [])
+})
