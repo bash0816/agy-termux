@@ -85,7 +85,7 @@ function loaderPaths(stdout) {
   return [...stdout.matchAll(/LOADER_RAN version=\S+ path=(\S+)/g)].map((m) => m[1]);
 }
 
-test('E1 REFRESH で取得に失敗し既存の有効な成果物があれば、終了コード 0 で既存ファイルを起動し、表示を出す', () => {
+test('E1 REFRESH で取得に失敗したら既存の成果物では救済せず非ゼロで終了し、既存ファイルは壊さない', () => {
   const sb = setup('e1', '1.3.0');
   const first = launch(sb);
   assert.equal(first.status, 0, first.stderr);
@@ -93,9 +93,9 @@ test('E1 REFRESH で取得に失敗し既存の有効な成果物があれば、
 
   setRoute(sb.routes, { kind: 'corrupt' });
   const r = launch(sb, { AGY_TERMUX_REFRESH: '1' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, RECOVERED_MSG);
-  assert.deepEqual(loaderPaths(r.stdout), [sb.target]);
+  assert.notEqual(r.status, 0);
+  assert.doesNotMatch(r.stderr, RECOVERED_MSG);
+  assert.deepEqual(loaderPaths(r.stdout), []);
   assert.equal(sha256File(sb.target), before);
   assert.equal(countGets(sb), 2);
 });
@@ -167,4 +167,76 @@ test('E5 自己回復: 起動した成果物が消えていたら、launch 全�
   assert.equal(countGets(sb), 2);
   assert.deepEqual(loaderPaths(r.stdout), [sb.target]);
   assert.equal(fs.readFileSync(counter, 'utf8'), '2');
+});
+
+// VA39 の期待値テスト用。wiring.js は readJson / writeJson / BIN_SIZE を export していないため、ここで持つ
+const VA39_BIN_SIZE = 10 * 1024 * 1024 + 4096;
+
+function readPinConfig(pkgDir) {
+  return JSON.parse(fs.readFileSync(path.join(pkgDir, 'config', 'agy-verified-versions.json'), 'utf8'));
+}
+
+function writePinConfig(pkgDir, obj) {
+  fs.writeFileSync(path.join(pkgDir, 'config', 'agy-verified-versions.json'), JSON.stringify(obj, null, 2) + '\n');
+}
+
+// サイズと ELF の先頭が合う偽の va39 キャッシュを置く
+function writeFakeVa39Cache(sb) {
+  const { cachePaths } = require('../lib/binary-cache');
+  const file = cachePaths({ dir: sb.cacheDir, tag: '1.3.0', isPatch: true, unverified: false }).file;
+  fs.mkdirSync(sb.cacheDir, { recursive: true });
+  const buf = Buffer.alloc(VA39_BIN_SIZE);
+  buf[0] = 0x7f;
+  buf.write('ELF', 1, 'latin1');
+  fs.writeFileSync(file, buf);
+  return file;
+}
+
+test('V1 VA39 の pin の期待値が不正なら、サイズと ELF が合う偽キャッシュがあっても採用せず、loader も取得も 0 回で非ゼロ終了する', () => {
+  const sb = setup('v1', '1.3.0');
+  const pkgDir = path.dirname(path.dirname(sb.agy));
+  const cfg = readPinConfig(pkgDir);
+  delete cfg.va39_patched_sha256;
+  cfg.va39_patched_size = VA39_BIN_SIZE;
+  writePinConfig(pkgDir, cfg);
+
+  const cachePath = writeFakeVa39Cache(sb);
+  const before = sha256File(cachePath);
+
+  const r = launch(sb, { MOCK_VA_BITS: '39' });
+  assert.notEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, /検証済みの期待値が不足しているため、起動を停止しました/);
+  assert.deepEqual(h.readLog(sb.loaderLog).filter((l) => l.includes('LOADER_RAN')), []);
+  assert.equal(countGets(sb), 0, r.stderr);
+  assert.equal(sha256File(cachePath), before, r.stderr);
+});
+
+test('V2 VA39 の pin が有効で、キャッシュが ELF だけ合ってサイズが期待と違うなら、現行とは扱わず取得に進む', () => {
+  const sb = setup('v2', '1.3.0');
+  const cachePath = writeFakeVa39Cache(sb);
+  const before = sha256File(cachePath);
+
+  const r = launch(sb, { MOCK_VA_BITS: '39' });
+  assert.notEqual(r.status, 0, r.stderr);
+  assert.deepEqual(h.readLog(sb.loaderLog).filter((l) => l.includes('LOADER_RAN')), [], r.stderr);
+  assert.equal(countGets(sb), 1, r.stderr);
+  assert.equal(sha256File(cachePath), before, r.stderr);
+});
+
+test('V3 VA39 の pin が有効で、キャッシュのサイズと ELF が期待と一致すれば、取得せずに起動する(回帰)', () => {
+  const sb = setup('v3', '1.3.0');
+  const pkgDir = path.dirname(path.dirname(sb.agy));
+  const cfg = readPinConfig(pkgDir);
+  cfg.va39_patched_size = VA39_BIN_SIZE;
+  cfg.va39_patch_breakdown = [
+    { kind: 'main', offset: 0, size: VA39_BIN_SIZE, counts: { ...cfg.va39_patch_counts } },
+  ];
+  writePinConfig(pkgDir, cfg);
+
+  const cachePath = writeFakeVa39Cache(sb);
+
+  const r = launch(sb, { MOCK_VA_BITS: '39' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(loaderPaths(r.stdout), [cachePath], r.stderr);
+  assert.equal(countGets(sb), 0, r.stderr);
 });
