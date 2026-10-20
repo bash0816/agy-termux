@@ -674,3 +674,134 @@ test('forceRefresh: 待機中に他者が新しく完成させた成果物は採
   assert.equal(r.file, p.file)
   assert.equal(rec.downloads, 0)
 })
+
+for (const ageMs of [0, 500, 1000]) {
+  test(`forceRefresh: 生存中のロックの後で、開始の ${ageMs}ms 前から有る成果物は完了扱いせず download する`, async (t) => {
+    const dir = mkTmp(t)
+    const bin = makeBin()
+    const meta = makeMeta(bin)
+    const p = pathsOf(dir, meta)
+    fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+    fs.writeFileSync(p.original, bin)
+    const old = new Date(Date.now() - ageMs)
+    fs.utimesSync(p.file, old, old)
+    fs.utimesSync(p.original, old, old)
+    const { deps, rec } = makeDeps({
+      serve: bin,
+      now: () => Date.now(),
+      acquireLock: async (lockPath, opts) => {
+        // 待機中に成果物は変わらないので checkDone は偽
+        if (opts.checkDone()) return { acquired: false, done: true }
+        return { acquired: true, release: () => {} }
+      },
+    })
+
+    const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+
+    assert.equal(rec.downloads, 1)
+    assert.notEqual(r.source, 'waited')
+    assert.equal(r.source, 'downloaded')
+  })
+}
+
+test('forceRefresh: 待機中に成果物が別 inode へ差し替わったら waited とし download しない', async (t) => {
+  const dir = mkTmp(t)
+  const bin = makeBin()
+  const meta = makeMeta(bin)
+  const p = pathsOf(dir, meta)
+  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+  fs.writeFileSync(p.original, bin)
+  const old = new Date(Date.now() - 60_000)
+  fs.utimesSync(p.file, old, old)
+  fs.utimesSync(p.original, old, old)
+  const { deps, rec } = makeDeps({
+    serve: bin,
+    now: () => Date.now(),
+    acquireLock: async (lockPath, opts) => {
+      // 同じ mtime・同じ size のまま rename で差し替え(変わるのは ino だけ)
+      const tmp = p.file + '.swap'
+      fs.writeFileSync(tmp, applyFakePatch(bin).buf)
+      fs.utimesSync(tmp, old, old)
+      fs.renameSync(tmp, p.file)
+      return { acquired: false, done: opts.checkDone() }
+    },
+  })
+
+  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+
+  assert.equal(r.source, 'waited')
+  assert.equal(r.file, p.file)
+  assert.equal(rec.downloads, 0)
+})
+
+test('forceRefresh: 待機中に成果物の mtime だけが変わったら waited とし download しない', async (t) => {
+  const dir = mkTmp(t)
+  const bin = makeBin()
+  const meta = makeMeta(bin)
+  const p = pathsOf(dir, meta)
+  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+  fs.writeFileSync(p.original, bin)
+  const old = new Date(Date.now() - 60_000)
+  fs.utimesSync(p.file, old, old)
+  fs.utimesSync(p.original, old, old)
+  const { deps, rec } = makeDeps({
+    serve: bin,
+    now: () => Date.now(),
+    acquireLock: async (lockPath, opts) => {
+      // 内容・inode は同じで mtime だけを更新する
+      const now = new Date()
+      fs.utimesSync(p.file, now, now)
+      return { acquired: false, done: opts.checkDone() }
+    },
+  })
+
+  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+
+  assert.equal(r.source, 'waited')
+  assert.equal(r.file, p.file)
+  assert.equal(rec.downloads, 0)
+})
+
+test('forceRefresh: 開始時に成果物が無く、待機中に現れたら完了とみなして waited', async (t) => {
+  const dir = mkTmp(t)
+  const bin = makeBin()
+  const meta = makeMeta(bin)
+  const p = pathsOf(dir, meta)
+  const { deps, rec } = makeDeps({
+    serve: bin,
+    now: () => Date.now(),
+    acquireLock: async (lockPath, opts) => {
+      fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+      return { acquired: false, done: opts.checkDone() }
+    },
+  })
+
+  const r = await ensureBinary(deps, ctxOf(dir, meta, { forceRefresh: true }))
+
+  assert.equal(r.source, 'waited')
+  assert.equal(r.file, p.file)
+  assert.equal(rec.downloads, 0)
+})
+
+test('forceRefresh でない: 有効な成果物があれば待機せず即 cache', async (t) => {
+  const dir = mkTmp(t)
+  const bin = makeBin()
+  const meta = makeMeta(bin)
+  const p = pathsOf(dir, meta)
+  fs.writeFileSync(p.file, applyFakePatch(bin).buf)
+  let locks = 0
+  const { deps, rec } = makeDeps({
+    serve: bin,
+    acquireLock: async () => {
+      locks += 1
+      return { acquired: true, release: () => {} }
+    },
+  })
+
+  const r = await ensureBinary(deps, ctxOf(dir, meta))
+
+  assert.equal(r.source, 'cache')
+  assert.equal(r.file, p.file)
+  assert.equal(rec.downloads, 0)
+  assert.equal(locks, 0)
+})
