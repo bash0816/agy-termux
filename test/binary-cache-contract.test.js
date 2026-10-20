@@ -123,7 +123,7 @@ function syncDeps(over = {}) {
   const out = [];
   const err = [];
   const deps = {
-    meta: { ...META },
+    meta: { ...PIN_META },
     dir: '/virtual/cache',
     isPatch: true,
     hasConsent: (key) => { calls.push('hasConsent:' + key); return true; },
@@ -280,7 +280,7 @@ test('prune: unlink が失敗したファイルは files・count・bytes に含�
 // --- syncBinary ---
 
 test('syncBinary: キャッシュが有効なら current。出力は空', async () => {
-  const { deps, out, err } = syncDeps({ fsDeps: fakeFsDeps() });
+  const { deps, out, err } = syncDeps({ fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }) });
   const r = await bc.syncBinary(deps);
   assert.deepEqual(r, {
     status: 'current', detail: '', tag: '1.2.16',
@@ -426,141 +426,6 @@ test('syncBinary: prune が例外のときは deleted が { count: 0, bytes: 0 }
     const r = await bc.syncBinary(deps);
     assert.deepEqual(r.deleted, { count: 0, bytes: 0 });
   }
-});
-
-// --- syncBinary: deps.ensure 指定時 ---
-
-// ensure を注入した依存。ensure の引数を記録し、ensureImpl の戻り値か例外を返す
-function ensureDeps(ensureImpl, over = {}) {
-  const ensureCalls = [];
-  const phases = [];
-  const built = syncDeps({
-    onPhase: (m) => phases.push(m),
-    ...over,
-    ensure: async (args) => { ensureCalls.push(args); return ensureImpl(args); },
-  });
-  return { ...built, ensureCalls, phases };
-}
-
-const ENSURED_FILE = '/ensure/agy-1.2.16.va39r2';
-
-test('syncBinary(ensure): source が cache なら current。file は ensure の値、事前判定と install はしない', async () => {
-  const { deps, calls, ensureCalls, phases, out, err } = ensureDeps(
-    async () => ({ file: ENSURED_FILE, source: 'cache' }),
-    { fsDeps: fakeFsDeps({ exists: false }) },
-  );
-  const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, {
-    status: 'current', detail: '', tag: '1.2.16', file: ENSURED_FILE,
-    deleted: { count: 0, bytes: 0 },
-  });
-  assert.deepEqual(ensureCalls, [{ forceRefresh: false }]);
-  assert.equal(calls.some((c) => c.startsWith('install:')), false);
-  assert.ok(calls.includes('prune:1.2.16'));
-  assert.deepEqual(phases, []);
-  assert.deepEqual(out, []);
-  assert.deepEqual(err, []);
-});
-
-test('syncBinary(ensure): source が downloaded / regenerated / waited / recovered なら synced。事前判定で止めず、ensure を必ず呼ぶ', async () => {
-  for (const source of ['downloaded', 'regenerated', 'waited', 'recovered']) {
-    const { deps, calls, ensureCalls, phases, out, err } = ensureDeps(
-      async () => ({ file: ENSURED_FILE, source }),
-      { fsDeps: fakeFsDeps(), isPatch: false },
-    );
-    const r = await bc.syncBinary(deps);
-    assert.deepEqual(r, {
-      status: 'synced', detail: '', tag: '1.2.16', file: ENSURED_FILE,
-      deleted: { count: 0, bytes: 0 },
-    }, source);
-    assert.equal(ensureCalls.length, 1, source);
-    assert.equal(calls.some((c) => c.startsWith('install:')), false, source);
-    assert.ok(calls.includes('prune:1.2.16'), source);
-    assert.deepEqual(phases, [], source);
-    assert.deepEqual(out, []);
-    assert.deepEqual(err, []);
-  }
-});
-
-test('syncBinary(ensure): ensure が code 付きで失敗したら error(code)。prune はしない', async () => {
-  const { deps, calls, out, err } = ensureDeps(async () => {
-    throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
-  });
-  const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, {
-    status: 'error', reason: 'ENOSPC', detail: 'disk full', tag: '1.2.16',
-    deleted: { count: 0, bytes: 0 },
-    error: { code: 'ENOSPC', detail: 'disk full' },
-  });
-  assert.equal(calls.some((c) => c.startsWith('prune:')), false);
-  assert.deepEqual(out, []);
-  assert.deepEqual(err, []);
-});
-
-test('syncBinary(ensure): ensure が code 無しで失敗したら reason は install', async () => {
-  const { deps, calls, out, err } = ensureDeps(async () => {
-    throw new Error('net down');
-  });
-  const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, {
-    status: 'error', reason: 'install', detail: 'net down', tag: '1.2.16',
-    deleted: { count: 0, bytes: 0 },
-    error: { detail: 'net down' },
-  });
-  assert.equal(calls.some((c) => c.startsWith('prune:')), false);
-  assert.deepEqual(out, []);
-  assert.deepEqual(err, []);
-});
-
-test('syncBinary(ensure): 同意拒否・loader 不在では ensure を呼ばない', async () => {
-  const consent = ensureDeps(async () => ({ file: ENSURED_FILE, source: 'cache' }), {
-    hasConsent: () => false,
-  });
-  const r1 = await bc.syncBinary(consent.deps);
-  assert.deepEqual(r1, {
-    status: 'skipped', reason: 'consent_declined', detail: '', tag: '1.2.16',
-    deleted: { count: 0, bytes: 0 },
-  });
-  assert.deepEqual(consent.ensureCalls, []);
-
-  const loader = ensureDeps(async () => ({ file: ENSURED_FILE, source: 'cache' }), {
-    loaderExists: () => false,
-  });
-  const r2 = await bc.syncBinary(loader.deps);
-  assert.deepEqual(r2, {
-    status: 'error', reason: 'loader', detail: '', tag: '1.2.16',
-    deleted: { count: 0, bytes: 0 },
-  });
-  assert.deepEqual(loader.ensureCalls, []);
-});
-
-test('syncBinary(ensure): 互換の同意が拒否されたら skipped(compat_declined)。ensure は呼ばない', async () => {
-  const { deps, ensureCalls, out, err } = ensureDeps(
-    async () => ({ file: ENSURED_FILE, source: 'downloaded' }),
-    { hasConsent: (key) => key === 'download', confirmCompat: async () => false },
-  );
-  const r = await bc.syncBinary(deps);
-  assert.deepEqual(r, {
-    status: 'skipped', reason: 'compat_declined', detail: '', tag: '1.2.16',
-    deleted: { count: 0, bytes: 0 },
-  });
-  assert.deepEqual(ensureCalls, []);
-  assert.deepEqual(out, []);
-  assert.deepEqual(err, []);
-});
-
-test('syncBinary(ensure): 互換が未取得で同意されたら confirmCompat の後に ensure を呼ぶ', async () => {
-  const order = [];
-  const { deps } = ensureDeps(
-    async () => { order.push('ensure'); return { file: ENSURED_FILE, source: 'downloaded' }; },
-    {
-      hasConsent: (key) => key === 'download',
-      confirmCompat: async () => { order.push('confirmCompat'); return true; },
-    },
-  );
-  const r = await bc.syncBinary(deps);
-  assert.equal(r.status, 'synced');
-  assert.deepEqual(order, ['confirmCompat', 'ensure']);
 });
 
 // --- installBinary: download への onPhase / progress / stallMs の受け渡し ---

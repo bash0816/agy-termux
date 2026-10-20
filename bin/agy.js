@@ -52,7 +52,6 @@ async function buildSyncDeps() {
     confirmCompat: async () => true,
     onPhase,
     progress: true,
-    ensure: ({ forceRefresh } = {}) => bc.ensureBinary(require('../lib/ensure-wiring').makeEnsureDeps({ fs, download: downloadBinary, patch: (buf) => require('../lib/patcher').applyVA39Patch(buf), onPhase, progress: true, npmVersion: require('../package.json').version }), { meta, dir: INSTALL_DIR, isPatch, unverified: false, forceRefresh: !!forceRefresh }),
     install: async (file) => {
       await bc.installBinary({
         download: downloadBinary,
@@ -62,7 +61,7 @@ async function buildSyncDeps() {
         randomHex: () => require('crypto').randomBytes(4).toString('hex'),
         onPhase,
         progress: true,
-      }, { meta, isPatch, file });
+      }, { meta, isPatch, unverified: false, file });
     },
     prune: (pinTag) => bc.prune({
       readdirSync: fs.readdirSync,

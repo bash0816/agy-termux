@@ -459,7 +459,7 @@ function syncDeps(over = {}) {
   const out = [];
   const err = [];
   const deps = {
-    meta: { ...META },
+    meta: { ...PIN_META },
     dir: '/virtual/cache',
     isPatch: true,
     hasConsent: (key) => { calls.push('hasConsent:' + key); return true; },
@@ -495,7 +495,7 @@ test('syncBinary: loader が無ければ error にして案内する', async () 
 });
 
 test('syncBinary: キャッシュが有効なら current。掃除だけ行い、取得や互換確認はしない', async () => {
-  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps() });
+  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }) });
   const r = await bc.syncBinary(deps);
   assert.deepEqual(r, { status: 'current', detail: '', tag: '1.2.16', file: path.join('/virtual/cache', 'agy-1.2.16.va39r2'), deleted: { count: 0, bytes: 0 } });
   assert.deepEqual(out, []);
@@ -511,7 +511,7 @@ test('syncBinary: 手動削除候補があれば一覧・合計・案内を出�
     ],
     total: 12,
   };
-  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps(), listManualCleanup: () => listing });
+  const { deps, calls, out, err } = syncDeps({ fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }), listManualCleanup: () => listing });
   const r = await bc.syncBinary(deps);
   assert.equal(r.status, 'current');
   // 手動削除の案内は出さず、listManualCleanup も呼ばない
@@ -586,6 +586,34 @@ test('syncBinary: prune が例外を投げても synced の結果は変わらな
 test('syncBinary: 不正な tagName は cachePaths の例外をそのまま返す', async () => {
   const { deps } = syncDeps({ meta: { ...META, tagName: '2.x' } });
   await assert.rejects(bc.syncBinary(deps), Error);
+});
+
+test('syncBinary: VA39 の期待値が不正なら error(VA39_EXPECTATION_MISSING)。キャッシュが有効に見えても採用せず、取得も掃除もしない', async () => {
+  const { deps, calls } = syncDeps({
+    meta: { ...PIN_META, expectation: undefined },
+    fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size }),
+  });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'error');
+  assert.equal(r.reason, 'VA39_EXPECTATION_MISSING');
+  assert.equal(calls.some((c) => c.startsWith('install:')), false);
+  assert.equal(calls.some((c) => c.startsWith('prune:')), false);
+});
+
+test('syncBinary: VA39 の pin が有効でも、ELF が合ってサイズが期待と違うキャッシュは current にならず取得に進む', async () => {
+  const { deps, calls } = syncDeps({
+    fsDeps: fakeFsDeps({ size: PIN_META.expectation.va39_patched_size + 1 }),
+  });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'synced');
+  assert.equal(calls.filter((c) => c.startsWith('install:')).length, 1);
+});
+
+test('syncBinary: 非パッチ版(VA48)は期待値が無くても免除され、従来どおり扱う', async () => {
+  const { deps, calls } = syncDeps({ isPatch: false, meta: { ...META }, fsDeps: fakeFsDeps() });
+  const r = await bc.syncBinary(deps);
+  assert.equal(r.status, 'current');
+  assert.equal(calls.some((c) => c.startsWith('install:')), false);
 });
 
 // --- prune ---
