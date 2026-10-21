@@ -74,9 +74,9 @@ Both steps are skipped on subsequent runs if the version has not changed.
 
 バージョンが変わっていない場合、2回目以降は両ステップをスキップします。
 
-**Tested with agy 1.1.9 on Android 12+ (SIGSYS shim + version pin).**
+**Tested with agy 1.3.3 on Android 12+ (SIGSYS shim + version pin).**
 
-**agy 1.1.9・Android 12+ で動作確認済み（SIGSYS shim + version pin）。**
+**agy 1.3.3・Android 12+ で動作確認済み（SIGSYS shim + version pin）。**
 
 ## Update / 更新
 
@@ -98,7 +98,7 @@ If you update from an older wrapper that cannot fetch the binary during the upda
 
 If `npm install` fails or is interrupted, `agy update` checks the actual installed state. If the original version is intact, it keeps that version and tells you so. If the package is incomplete, it reinstalls the original version once automatically; if that also fails, it prints the cause and the next command to run. If you are on a local test build and want to force-reinstall the published `latest` version regardless of version numbers, run `npm install -g @bash0816/agy-termux@latest` manually.
 
-- Cache files are named per version (`agy-<version>.bin` or `agy-<version>.va39`). Cache files in the old format are deleted automatically, and so are cache files of older versions other than the newest older one. Files modified within the last 10 minutes are not deleted. The deletion is reported only when something was deleted, as `古いキャッシュを削除しました: N 件、M MB`. You do not need to delete them manually. After a successful update, the current version and the newest older version are kept; older ones are removed. Leftover temporary files are removed once they are more than 24 hours old.
+- Cache files are named per version (`agy-<version>.bin` or `agy-<version>.va39r2`). Cache files in the old format are deleted automatically, and so are cache files of older versions other than the newest older one. Files modified within the last 10 minutes are not deleted. The deletion is reported only when something was deleted, as `古いキャッシュを削除しました: N 件、M MB`. You do not need to delete them manually. After a successful update, the current version and the newest older version are kept; older ones are removed. Leftover temporary files are removed once they are more than 24 hours old.
 - In rare cases, starting an older version while `agy update` is cleaning up can fail once. This can happen when an older wrapper without this fix is used elsewhere at the same time. Run it again.
 - To force a fresh download of the current binary, run `AGY_TERMUX_REFRESH=1 agy`.
 
@@ -116,7 +116,7 @@ If `npm install` fails or is interrupted, `agy update` checks the actual install
 
 `npm install` が失敗または中断した場合、`agy update` は実際の配置状態を確認します。元の版が無事なら、元の版のまま案内します。パッケージが不完全なら、元の版を 1 回だけ自動で入れ直し、それも失敗した場合は原因と次に実行するコマンドを案内します。ローカルテストビルドを使用中で、バージョン番号によらず公開済みの `latest` へ強制的に戻したい場合は、`npm install -g @bash0816/agy-termux@latest` を手動で実行してください。
 
-- キャッシュのファイルは版ごとの名前です(`agy-<版>.bin` または `agy-<版>.va39`)。旧形式のキャッシュは自動で削除されます。古い版のキャッシュも、最新の 1 つを除いて自動で削除されます。10 分以内に更新されたファイルは削除されません。削除したときだけ `古いキャッシュを削除しました: N 件、M MB` と表示されます。手動で削除する必要はありません。更新が成功すると、現在の版と、それより古い版のうち最新の 1 つを残し、それより古いものは削除します。作業用の一時ファイルは、24 時間以上経ったものだけ削除します。
+- キャッシュのファイルは版ごとの名前です(`agy-<版>.bin` または `agy-<版>.va39r2`)。旧形式のキャッシュは自動で削除されます。古い版のキャッシュも、最新の 1 つを除いて自動で削除されます。10 分以内に更新されたファイルは削除されません。削除したときだけ `古いキャッシュを削除しました: N 件、M MB` と表示されます。手動で削除する必要はありません。更新が成功すると、現在の版と、それより古い版のうち最新の 1 つを残し、それより古いものは削除します。作業用の一時ファイルは、24 時間以上経ったものだけ削除します。
 - まれに、`agy update` が古い版のファイルを整理している最中にその古い版を起動すると、起動に 1 回失敗することがあります。この修正を含まない古い版のラッパーを別の場所で同時に使っている場合に起こります。もう一度実行してください。
 - 現在のバイナリを取得し直したいときは、`AGY_TERMUX_REFRESH=1 agy` を実行してください。
 
@@ -136,9 +136,9 @@ For available commands, see the [Antigravity CLI documentation](https://antigrav
 
 バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーパッケージバージョンを1行で表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
 
-**Caching:** The downloaded binary is persisted locally in `~/.agy-termux`, in a file named for its version (`agy-<version>.va39` on patch-needed devices, `agy-<version>.bin` on other devices). It is only downloaded again when the version of your installed package changes, when the file is missing or damaged, or when you force a refresh. `agy update` fetches it ahead of time when it is missing, so the next `agy` start does not have to download it (this does not apply if the download consent was not given yet, or if the compatibility step is declined). If another process's cleanup removes the cache just before `agy` starts, `agy` fetches it once automatically and then starts.
+**Caching:** The downloaded binary is persisted locally in `~/.agy-termux`, in a file named for its version (`agy-<version>.va39r2` on patch-needed devices, `agy-<version>.bin` on other devices). It is only downloaded again when the version of your installed package changes, when the file is missing or damaged, or when you force a refresh. `agy update` fetches it ahead of time when it is missing, so the next `agy` start does not have to download it (this does not apply if the download consent was not given yet, or if the compatibility step is declined). If another process's cleanup removes the cache just before `agy` starts, `agy` fetches it once automatically and then starts.
 
-キャッシング: ダウンロード済みバイナリは `~/.agy-termux` に、版を含むファイル名(パッチが必要なデバイスは `agy-<版>.va39`、その他は `agy-<版>.bin`)でローカル保持されます。インストール済みパッケージの版が変わったとき、ファイルが無い/壊れているとき、強制更新したときにだけ再ダウンロードされます。`agy update` はファイルが無ければ事前に取得するため、次回の `agy` 起動で取得処理は走りません(ダウンロードの同意がまだの場合や、互換調整を拒否した場合を除きます)。別のプロセスの整理処理が `agy` の起動直前にキャッシュを削除した場合は、`agy` が自動で 1 回取得してから起動します。
+キャッシング: ダウンロード済みバイナリは `~/.agy-termux` に、版を含むファイル名(パッチが必要なデバイスは `agy-<版>.va39r2`、その他は `agy-<版>.bin`)でローカル保持されます。インストール済みパッケージの版が変わったとき、ファイルが無い/壊れているとき、強制更新したときにだけ再ダウンロードされます。`agy update` はファイルが無ければ事前に取得するため、次回の `agy` 起動で取得処理は走りません(ダウンロードの同意がまだの場合や、互換調整を拒否した場合を除きます)。別のプロセスの整理処理が `agy` の起動直前にキャッシュを削除した場合は、`agy` が自動で 1 回取得してから起動します。
 
 **Force refresh:** Set `AGY_TERMUX_REFRESH=1` to force a clean re-download and re-verification of the binary, even if the cached version matches the upstream tag.
 
