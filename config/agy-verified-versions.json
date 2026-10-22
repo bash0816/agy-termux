@@ -1,8 +1,8 @@
 {
-  "tag_name": "1.4.4",
-  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.4.4/agy_cli_linux_arm64.tar.gz",
-  "sha256_tar": "57a96abbc94745a5faf4f24e878766a1882b9aa4c4b83ba567717d8206745f5a",
-  "sha256_binary": "759ed450aa2c9449d065231da7220c60dfb18138691724387ad6e1c710c102ec",
+  "tag_name": "1.4.5",
+  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.4.5/agy_cli_linux_arm64.tar.gz",
+  "sha256_tar": "8826b80c4b013f087734f24c5eadcc38600e74a1af411272d42a840d52ed3ee7",
+  "sha256_binary": "dab7e56c76b3a86b90984df9d56447f0c01dc6feb9a20f464b9ca6b74615e9b2",
   "va39_patcher_rev": 2,
   "va39_patch_counts": {
     "ubfx": 0,
@@ -15,7 +15,7 @@
     {
       "kind": "main",
       "offset": 0,
-      "size": 213143760,
+      "size": 213405904,
       "counts": {
         "ubfx": 0,
         "lsl": 6,
@@ -26,7 +26,7 @@
     },
     {
       "kind": "embedded",
-      "offset": 190570634,
+      "offset": 190790918,
       "size": 6204728,
       "counts": {
         "ubfx": 0,
@@ -38,7 +38,7 @@
     },
     {
       "kind": "embedded",
-      "offset": 196775362,
+      "offset": 196995646,
       "size": 15860003,
       "counts": {
         "ubfx": 0,
@@ -49,13 +49,13 @@
       }
     }
   ],
-  "va39_patched_sha256": "da508f1f404326bb9626dd493173a8c9c56ed7eadd4dd54686b727f910758ec2",
-  "va39_patched_size": 213143760,
-  "release_id": 419232113,
-  "asset_id": 661602303,
-  "asset_updated_at": "2026-10-21T06:37:55Z",
+  "va39_patched_sha256": "9b2d39fd32b518752709fde428483c3825691bc524fd00602e35fb284675eef4",
+  "va39_patched_size": 213405904,
+  "release_id": 420325041,
+  "asset_id": 664730180,
+  "asset_updated_at": "2026-10-22T05:01:33Z",
   "source_repo": "google-antigravity/antigravity-cli",
-  "verified_date": "2026-10-22",
+  "verified_date": "2026-10-23",
   "release_state": "stable",
-  "notes": "Promoted via promote-agy-candidate.js --confirm-device-verified on 2026-10-22. VA39 expectation change approved: upstream 1.4.4 binary changed main size and embedded offsets; patch counts unchanged from 1.3.3; device-verified (changed: breakdown[0].size: 204034232 -> 213143760; breakdown[1].offset: 181470808 -> 190570634; breakdown[1].size: 6185432 -> 6204728; breakdown[2].offset: 187656240 -> 196775362). Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified."
+  "notes": "Promoted via promote-agy-candidate.js --confirm-device-verified on 2026-10-23. VA39 expectation change approved: upstream 1.4.5 binary changed main size and embedded offsets; patch counts unchanged from 1.4.4; device-verified (changed: breakdown[0].size: 213143760 -> 213405904; breakdown[1].offset: 190570634 -> 190790918; breakdown[2].offset: 196775362 -> 196995646). Device/functional verification confirmed by the operator invoking this script with --confirm-device-verified."
 }
