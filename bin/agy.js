@@ -177,7 +177,7 @@ async function main() {
   if (['update','--update','upgrade'].includes(args[0])) {
     // 判定ロジックは lib/audited-update.js に分離(監査済み版を基準にする)
     const { spawnSync } = require('child_process');
-    const { renderFinal, renderUnknownResult, parseResult } = require('../lib/render-final');
+    const { renderFinal, renderUnknownResult, parseResult, cacheStateLine } = require('../lib/render-final');
     const { runSyncChild } = require('../lib/run-sync-child');
     // 更新後の新しいコードから呼ばれる同期専用の経路。更新判定は行わない
     if (args[1] === '--sync-binary-only') {
@@ -214,12 +214,22 @@ async function main() {
       process.exit(rf.code);
     }
     if (r.code !== 0) process.exit(r.code);
-    // 版が変わっていない(install されなかった)場合は、現在のコードでバイナリだけ同期する
+    // 版が変わっていない(install されなかった)場合は、バイナリを取得せず、いまのキャッシュの状態だけを示す
     if (!r.installed) {
-      const result = await syncResultOrError();
-      const rf = renderFinal({ installed: false, result });
-      printLines(rf.lines);
-      process.exit(rf.code);
+      let ins;
+      try {
+        const { inspectPinned } = require('../lib/binary-cache');
+        const { readPinnedMeta } = require('../lib/downloader');
+        ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
+      } catch {
+        ins = { state: 'unknown', tag: null };
+      }
+      // 監査済み版は新しいが公開待ちで見送った場合は、更新できていないことを毎回示す(詳細な通知は未通知のときだけ出る)
+      if (r.outcome === 'deferred') {
+        console.log('[agy] 更新候補 ' + r.aud + ' がありますが、公開状況の確認が取れていないため見送り中です(使用中: ' + r.from + ')');
+      }
+      console.log(cacheStateLine(ins.state, ins.tag));
+      process.exit(0);
     }
     // 更新後の package.json をディスクから読み直す(require のキャッシュは使わない)
     let newVer;
@@ -233,7 +243,8 @@ async function main() {
     }
     // 旧版には binary-cache.js が無いので、同期は行わず案内だけ出す
     if (!fs.existsSync(path.join(r.pkgDir, 'lib', 'binary-cache.js'))) {
-      console.error('[agy] 警告: パッケージは ' + r.aud + ' に更新済みですが、このバージョンにはバイナリ同期機能が含まれていないため、バイナリは同期されていません。agy の版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください。');
+      console.log('[agy] パッケージを ' + r.from + ' → ' + r.aud + ' に更新しました');
+      console.error('[agy] バイナリ: このバージョンには同期機能が無いため同期していません。版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください');
       process.exit(0);
     }
     // 新しいコードに同期を任せる。結果は fd 3 で受け取る
@@ -245,7 +256,7 @@ async function main() {
     const result = parseResult(c.text);
     const rf = result
       ? renderFinal({ installed: true, from: r.from, to: r.to, result })
-      : renderUnknownResult({ to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
+      : renderUnknownResult({ from: r.from, to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
     printLines(rf.lines);
     process.exit(rf.code);
   }

@@ -314,10 +314,12 @@ test('W6 --version は副作用ゼロ', () => {
 
 // W7 通常の update でも、不要な書き込み(~/.agy-termux の作成)をしない
 test('W7 update は隔離 HOME に .agy-termux を作らない', () => {
-  // 同意ファイルなし: 非 TTY の update は同意待ちで exit 1 になり、その間に .agy-termux を作らない
+  // 同意ファイルなし。今の版は監査済み版と同じ(更新なし)なので、同意の質問も取得も行わず、状態を 1 行出して exit 0 で終わる
   const sb = setup('w7', '1.2.16', { consent: false });
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok' });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /同意の入力がありません/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /同意/);
+  const lastLine = r.stdout.trimEnd().split('\n').pop();
+  assert.match(lastLine, /^\[agy\] (バイナリは取得済みです \(|バイナリは未取得です。|バイナリが壊れているか期待と異なります。|バイナリの状態を判定できません)/);
   assert.equal(fs.existsSync(path.join(sb.home, '.agy-termux')), false);
 });
