@@ -110,7 +110,7 @@ test('L1 launch miss: キャッシュが無ければ取得してから loader �
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), true);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, '.version')), false);
   assert.equal(countGets(sb), 1);
-  assert.match(r.stderr, /\[agy\] 1\.3\.0 のバイナリを取得します\(初回のみ・数分かかることがあります。次回からは取得しません\)/);
+  assert.match(r.stderr, /\[agy\] 1\.3\.0 のバイナリが未取得のため取得します\(初回のみ・数分かかることがあります。次回からは取得しません\)/);
 });
 
 test('L2 launch hit: キャッシュがあれば取得せず loader を起動する', () => {

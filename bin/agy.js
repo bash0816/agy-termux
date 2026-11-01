@@ -303,7 +303,9 @@ async function main() {
   const { file: tmp } = bc.cachePaths({ dir: INSTALL_DIR, tag: tagName, isPatch, unverified: useLatest });
   // VA39 pin は期待サイズも要求する。キャッシュの健全性チェック(サイズ + ELFマジックバイト)。壊れている場合は再取得させる
   const expectedSize = isPatch && !useLatest ? meta.expectation.va39_patched_size : undefined;
-  const cacheHit = !forceRefresh && bc.isCacheValid(fs, tmp, { expectedSize });
+  // 'ok' | 'missing' | 'invalid'。取得の予告に理由を出すため状態を保持する
+  const cacheState = bc.inspectFile({ fs, file: tmp, expectedSize });
+  const cacheHit = !forceRefresh && cacheState === 'ok';
 
   if (!cacheHit && isPatch) {
     const c = await consent.gateCompat();
@@ -312,8 +314,14 @@ async function main() {
   }
 
   // バイナリを取得して配置する。取得の前に予告を出す(取得の進捗はダウンロード側が出す)
-  const install = async () => {
-    process.stderr.write(`[agy] ${tagName} のバイナリを取得します(初回のみ・数分かかることがあります。次回からは取得しません)\n`);
+  const install = async (reason) => {
+    // 取得の理由を示す。自己回復('self_heal')は直前に専用の行を出しているので、ここでは出さない
+    const preface = {
+      refresh: `AGY_TERMUX_REFRESH=1 のため、${tagName} のバイナリを取得し直します`,
+      missing: `${tagName} のバイナリが未取得のため取得します(初回のみ・数分かかることがあります。次回からは取得しません)`,
+      invalid: `${tagName} のバイナリが壊れているか期待と異なるため取得し直します`,
+    }[reason];
+    if (preface) process.stderr.write('[agy] ' + preface + '\n');
     // 取得前に既存キャッシュは消さない。配置は一時ファイル経由の rename で行う
     await bc.installBinary({
       download: downloadBinary,
@@ -345,20 +353,20 @@ async function main() {
     });
   });
   // 必要なら取得してから loader を起動する
-  const launchOnce = async (needInstall) => {
+  const launchOnce = async (needInstall, reason) => {
     if (needInstall) {
-      try { await install(); } catch (err) { failAndExit(err); }
+      try { await install(reason); } catch (err) { failAndExit(err); }
     }
     return runLoader();
   };
 
   // 自己回復は launch 全体で 1 回だけ。キャッシュの実体が消えていた場合に限り、取得し直して起動する
   let recovered = false;
-  let r = await launchOnce(!cacheHit);
+  let r = await launchOnce(!cacheHit, forceRefresh ? 'refresh' : cacheState);
   if (!r.signal && r.code !== 0 && !fs.existsSync(tmp) && !recovered) {
     recovered = true;
     process.stderr.write('[agy] キャッシュが入れ替わったため、取得し直して起動します...\n');
-    r = await launchOnce(true);
+    r = await launchOnce(true, 'self_heal');
   }
   process.exit(r.signal ? 1 : (r.code ?? 0));
 }
