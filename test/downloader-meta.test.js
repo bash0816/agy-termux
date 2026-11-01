@@ -81,3 +81,20 @@ test('fetchPinnedMeta: sha256_tar / sha256_binary 欠落時は従来どおり例
   const noBin = loadWithConfig({ ...BASE, sha256_binary: undefined, ...VA39_KEYS }).fetchPinnedMeta
   await assert.rejects(noBin(), /sha256_binary/)
 })
+
+test('readPinnedMeta: fetchPinnedMeta と同じ内容を同期で返す', async () => {
+  const { fetchPinnedMeta, readPinnedMeta } = loadWithConfig({ ...BASE, ...VA39_KEYS })
+  const v = readPinnedMeta()
+  assert.ok(!(v instanceof Promise))
+  assert.deepStrictEqual(v, await fetchPinnedMeta())
+})
+
+test('readPinnedMeta: sha256_tar が無ければ同期で例外', () => {
+  const { readPinnedMeta } = loadWithConfig({ ...BASE, sha256_tar: undefined, ...VA39_KEYS })
+  assert.throws(() => readPinnedMeta(), /sha256_tar/)
+})
+
+test('readPinnedMeta: sha256_binary が無ければ同期で例外', () => {
+  const { readPinnedMeta } = loadWithConfig({ ...BASE, sha256_binary: undefined, ...VA39_KEYS })
+  assert.throws(() => readPinnedMeta(), /sha256_binary/)
+})
