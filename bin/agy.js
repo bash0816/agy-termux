@@ -153,10 +153,20 @@ async function main() {
   const args = process.argv.slice(2);
 
   // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn・
-  // ファイルシステムへの書き込みは一切行わない（副作用ゼロを維持するため、legacy cleanupより前に早期return する）。
+  // ファイルシステムへの書き込みは一切行わない。キャッシュの状態を読むだけ（legacy cleanupより前に早期return する）。
   if (['--version', '-v', '-V', 'version'].includes(args[0])) {
     const pkg = require('../package.json');
     console.log(`agy-termux ${pkg.version}`);
+    // バイナリが未取得・破損・判定不能のときだけ、標準エラーに注記を1行足す(読み取りのみ・通信なし)。失敗しても1行目と終了コードは変えない
+    try {
+      const { inspectPinned } = require('../lib/binary-cache');
+      const { readPinnedMeta } = require('../lib/downloader');
+      const { cacheStateLine } = require('../lib/render-final');
+      const ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
+      if (ins.state !== 'ok') console.error(cacheStateLine(ins.state, ins.tag));
+    } catch {
+      // 注記を出せなくても --version 自体は成功させる
+    }
     process.exit(0);
   }
 
