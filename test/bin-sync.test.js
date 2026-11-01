@@ -466,7 +466,7 @@ test('E4 引き継ぎ先の同期が失敗: 取得に失敗して終了し、パ
   // (b) update は失敗する。パッケージは 1.3.0 に更新済み
   const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /バイナリの取得に失敗しました/);
+  assert.match(r.stderr, /バイナリ: 取得に失敗しました/);
   const pkgJson = JSON.parse(fs.readFileSync(path.join(sb.prefix, 'lib', 'node_modules', '@bash0816', 'agy-termux', 'package.json'), 'utf8'));
   assert.equal(pkgJson.version, '1.3.0');
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), false);
