@@ -88,11 +88,11 @@ This package downloads a specific verified version of the `agy` binary pinned in
 To force download the latest upstream version instead, set `AGY_TERMUX_FORCE_LATEST=1` (not recommended; compatibility not guaranteed).
 Note: When `AGY_TERMUX_FORCE_LATEST=1` is set, the output of `--version` does not reflect the actual upstream version being used — it always displays the wrapper package version as configured in `package.json`.
 
-`agy update` checks the audited version published in this repository. If it is newer than the installed version and matches the npm `latest` tag, it reinstalls that exact version into the prefix this wrapper is installed in. It then fetches the matching Antigravity CLI binary into the cache (`~/.agy-termux`), so the next `agy` start does not have to download anything. You do not need to start `agy` separately to fetch it. If the audited version does not match the npm `latest` tag, the update is skipped and one line says so; the same message is not repeated for the same combination. If you are already on the audited version, `agy update` still fetches the binary when it is missing or outdated. If the binary is already the latest, it prints `バイナリは最新です (X)` and exits.
+`agy update` checks the audited version published in this repository. If it is newer than the installed version and matches the npm `latest` tag, it reinstalls that exact version into the prefix this wrapper is installed in. It then fetches the matching Antigravity CLI binary into the cache (`~/.agy-termux`), so the next `agy` start does not have to download anything. You do not need to start `agy` separately to fetch it. If the audited version does not match the npm `latest` tag, the update is skipped and one line says so; the same message is not repeated for the same combination. If you are already on the audited version, `agy update` does not download the binary. It prints one line showing whether the binary is already downloaded (`バイナリは取得済みです (X)`) or still has to be fetched; in the latter case the next `agy` start fetches it and tells you why.
 
 While the binary is downloaded, `agy update` shows each stage (verification, extraction, compatibility adjustment, saving) as it starts, and the download progress every 2 seconds. If the connection stalls for 60 seconds, the download is stopped and a message gives the cause. At the end, one final line is shown, such as `A → B に更新しました` or `バイナリを X に取得しました`.
 
-The first time, `agy update` asks for your consent to the download and the compatibility adjustment. It asks only when run from a terminal (TTY). If input is not a terminal (for example, a pipe or redirect) and consent has not been given, it does not ask; it prints `同意の入力がありません。端末から agy update または agy を実行してください` and exits with status 1. If you decline, the binary is neither downloaded nor saved, and you are asked again the next time you run it.
+The first time the binary is downloaded (when `agy update` installs a new version, or when `agy` starts without a cached binary), you are asked for your consent to the download and the compatibility adjustment. It asks only when run from a terminal (TTY). If input is not a terminal (for example, a pipe or redirect) and consent has not been given, it does not ask; it prints `同意の入力がありません。端末から agy update または agy を実行してください` and exits with status 1. If you decline, the binary is neither downloaded nor saved, and you are asked again the next time you run it.
 
 If you update from an older wrapper that cannot fetch the binary during the update, the first `agy` start after the update downloads it once.
 
@@ -106,11 +106,11 @@ If `npm install` fails or is interrupted, `agy update` checks the actual install
 最新 upstream バージョンを試す場合は `AGY_TERMUX_FORCE_LATEST=1` を設定してください（非推奨。互換性の保証なし）。
 注記: `AGY_TERMUX_FORCE_LATEST=1` が設定されている場合、`--version` の表示は実際に取得される upstream バージョンを反映しません — 常に `package.json` で定義されたラッパーパッケージバージョンを表示します。
 
-`agy update` は、このリポジトリで公開している監査済みバージョンを確認し、インストール済みより新しく、かつ npm の `latest` タグと一致する場合のみ、このラッパーがインストールされている prefix にその版を固定して再インストールします。続けて、対応する Antigravity CLI のバイナリをキャッシュ(`~/.agy-termux`)に取得します。そのため、次回の `agy` 起動で取得処理は走りません。`agy` を別途起動して取得する必要はありません。監査済みの版と npm の `latest` タグが一致しない場合は更新を見送り、その事実を 1 行で伝えます(同じ組合せでは繰り返し表示しません)。すでに監査済みの版を使っている場合でも、`agy update` はバイナリが無い・古いときに取得します。バイナリが最新なら `バイナリは最新です (X)` と表示して終了します。
+`agy update` は、このリポジトリで公開している監査済みバージョンを確認し、インストール済みより新しく、かつ npm の `latest` タグと一致する場合のみ、このラッパーがインストールされている prefix にその版を固定して再インストールします。続けて、対応する Antigravity CLI のバイナリをキャッシュ(`~/.agy-termux`)に取得します。そのため、次回の `agy` 起動で取得処理は走りません。`agy` を別途起動して取得する必要はありません。監査済みの版と npm の `latest` タグが一致しない場合は更新を見送り、その事実を 1 行で伝えます(同じ組合せでは繰り返し表示しません)。すでに監査済みの版を使っている場合、`agy update` はバイナリを取得しません。バイナリが取得済みかどうかを 1 行で表示します(`バイナリは取得済みです (X)` など)。未取得・破損のときは、次の `agy` 起動で理由を示して取得します。
 
 バイナリの取得中は、各段階(検証・展開・互換調整・保存)を処理の切り替わりごとに表示し、ダウンロードの進捗を 2 秒ごとに表示します。通信が 60 秒止まると中断し、原因を示すメッセージを出します。最後に `A → B に更新しました` や `バイナリを X に取得しました` のような表示が 1 か所にまとめて出ます。
 
-初回は、ダウンロードと互換調整についての同意を確認します。質問するのは端末(TTY)から実行したときだけです。パイプやリダイレクトなど端末でない入力で同意がない場合は質問せず、`同意の入力がありません。端末から agy update または agy を実行してください` と表示して終了コード 1 で終わります。同意しなかった場合はバイナリを取得も保存もせず、次に実行したときにもう一度尋ねます。
+バイナリを初めて取得するとき(`agy update` で新しい版を入れるとき、またはキャッシュが無い状態で `agy` を起動したとき)は、ダウンロードと互換調整についての同意を確認します。質問するのは端末(TTY)から実行したときだけです。パイプやリダイレクトなど端末でない入力で同意がない場合は質問せず、`同意の入力がありません。端末から agy update または agy を実行してください` と表示して終了コード 1 で終わります。同意しなかった場合はバイナリを取得も保存もせず、次に実行したときにもう一度尋ねます。
 
 更新中にバイナリを取得できない古いラッパーから更新した場合は、更新後の最初の `agy` 起動で、バイナリを 1 回取得します。
 
@@ -132,13 +132,13 @@ For available commands, see the [Antigravity CLI documentation](https://antigrav
 
 ## Version and Caching / バージョンとキャッシュ
 
-**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper package version in a single line without triggering any network access, consent prompts, or binary downloads.
+**Version check:** `agy --version` (or `-v`, `-V`, `version`) prints the wrapper package version in a single line without triggering any network access, consent prompts, or binary downloads. If the binary is not downloaded yet or is unusable, one extra note line is printed to stderr; the first line and the exit status are unchanged.
 
-バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーパッケージバージョンを1行で表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。
+バージョン確認: `agy --version` (または `-v`, `-V`, `version`) はラッパーパッケージバージョンを1行で表示します。ネットワーク接続・同意プロンプト・バイナリダウンロードは一切発生しません。バイナリが未取得または利用できない場合は、標準エラーに注記を 1 行だけ追加します(1 行目と終了コードは変わりません)。
 
-**Caching:** The downloaded binary is persisted locally in `~/.agy-termux`, in a file named for its version (`agy-<version>.va39r2` on patch-needed devices, `agy-<version>.bin` on other devices). It is only downloaded again when the version of your installed package changes, when the file is missing or damaged, or when you force a refresh. `agy update` fetches it ahead of time when it is missing, so the next `agy` start does not have to download it (this does not apply if the download consent was not given yet, or if the compatibility step is declined). If another process's cleanup removes the cache just before `agy` starts, `agy` fetches it once automatically and then starts.
+**Caching:** The downloaded binary is persisted locally in `~/.agy-termux`, in a file named for its version (`agy-<version>.va39r2` on patch-needed devices, `agy-<version>.bin` on other devices). It is only downloaded again when the version of your installed package changes, when the file is missing or damaged, or when you force a refresh. `agy update` fetches it only when it installs a new version. When there is no update, it just shows whether the binary is already downloaded; a missing or damaged binary is fetched at the next `agy` start, which tells you why. If another process's cleanup removes the cache just before `agy` starts, `agy` fetches it once automatically and then starts.
 
-キャッシング: ダウンロード済みバイナリは `~/.agy-termux` に、版を含むファイル名(パッチが必要なデバイスは `agy-<版>.va39r2`、その他は `agy-<版>.bin`)でローカル保持されます。インストール済みパッケージの版が変わったとき、ファイルが無い/壊れているとき、強制更新したときにだけ再ダウンロードされます。`agy update` はファイルが無ければ事前に取得するため、次回の `agy` 起動で取得処理は走りません(ダウンロードの同意がまだの場合や、互換調整を拒否した場合を除きます)。別のプロセスの整理処理が `agy` の起動直前にキャッシュを削除した場合は、`agy` が自動で 1 回取得してから起動します。
+キャッシング: ダウンロード済みバイナリは `~/.agy-termux` に、版を含むファイル名(パッチが必要なデバイスは `agy-<版>.va39r2`、その他は `agy-<版>.bin`)でローカル保持されます。インストール済みパッケージの版が変わったとき、ファイルが無い/壊れているとき、強制更新したときにだけ再ダウンロードされます。`agy update` が取得するのは、新しい版を入れるときだけです。更新がないときは、取得済みかどうかを表示するだけで、ファイルが無い/壊れているときは次回の `agy` 起動で、理由を示して取得します。別のプロセスの整理処理が `agy` の起動直前にキャッシュを削除した場合は、`agy` が自動で 1 回取得してから起動します。
 
 **Force refresh:** Set `AGY_TERMUX_REFRESH=1` to force a clean re-download and re-verification of the binary, even if the cached version matches the upstream tag.
 

@@ -401,7 +401,7 @@ test('runUpdate', async (t) => {
   // U1: 既に監査済みの最新
   await t.test('U1 現在版と監査済み版が同じなら何もせず code 0 を返す', async () => {
     const { deps, calls, out } = makeDeps({ pkgVersion: '1.2.16' });
-    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.16', to: '1.2.16', aud: '1.2.16', notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.16', to: '1.2.16', aud: '1.2.16', notice: null, outcome: 'current' });
     assertIncludes(out, 'Already on latest audited version: 1.2.16');
     assert.equal(calls.npmViewLatest, 0);
     assert.equal(calls.runInstall.length, 0);
@@ -410,7 +410,7 @@ test('runUpdate', async (t) => {
   // U2: 現在版が監査済み版より新しい
   await t.test('U2 現在版が監査済み版より新しければ code 0 を返し、更新しない旨を1行で表示する', async () => {
     const { deps, calls, out } = makeDeps({ pkgVersion: '1.3.0' });
-    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.3.0', to: '1.2.16', aud: '1.2.16', notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.3.0', to: '1.2.16', aud: '1.2.16', notice: null, outcome: 'ahead' });
     assertIncludes(out, '使用中の 1.3.0 は、公開されている監査済み版 (1.2.16) より新しいため、更新はしません(ダウングレードもしません)');
     assert.equal(out.length, 1);
     assert.equal(calls.npmViewLatest, 0);
@@ -427,6 +427,7 @@ test('runUpdate', async (t) => {
       to: '1.2.16',
       aud: '1.2.16',
       notice: null,
+      outcome: 'installed',
     });
     assert.deepEqual(calls.runInstall, [['/p', '1.2.16']]);
     assertIncludes(err, '1.2.14 → 1.2.16 に更新します');
@@ -439,7 +440,7 @@ test('runUpdate', async (t) => {
       npmViewLatest: () => ({ ok: true, version: '1.2.14' }),
       notified: { has: () => false, record: () => true },
     });
-    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: 'mismatch' });
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: 'mismatch', outcome: 'deferred' });
     assertIncludes(out, '一致しないため、更新を見送りました');
     assert.equal(calls.runInstall.length, 0);
   });
@@ -452,7 +453,7 @@ test('runUpdate', async (t) => {
         npmViewLatest: () => ({ ok: true, version: latest }),
         notified: { has: () => false, record: () => true },
       });
-      assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: 'mismatch' }, `latest: ${latest}`);
+      assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: 'mismatch', outcome: 'deferred' }, `latest: ${latest}`);
       assertIncludes(out, '一致しないため、更新を見送りました');
       assert.equal(calls.runInstall.length, 0, `latest: ${latest}`);
     }
@@ -464,7 +465,7 @@ test('runUpdate', async (t) => {
       pkgVersion: '1.2.16',
       fetchAudited: () => Promise.resolve('1.2.14'),
     });
-    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.16', to: '1.2.14', aud: '1.2.14', notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 0, installed: false, pkgDir: null, from: '1.2.16', to: '1.2.14', aud: '1.2.14', notice: null, outcome: 'ahead' });
     assertIncludes(out, '使用中の 1.2.16 は、公開されている監査済み版 (1.2.14) より新しいため、更新はしません(ダウングレードもしません)');
     assert.equal(out.length, 1);
     assert.equal(calls.npmViewLatest, 0);
@@ -476,7 +477,7 @@ test('runUpdate', async (t) => {
     const { deps, calls, err } = makeDeps({
       fetchAudited: () => Promise.reject(new Error('net down')),
     });
-    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: null, aud: null, notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: null, aud: null, notice: null, outcome: 'error' });
     assertIncludes(err, '監査済み版の確認に失敗しました');
     assert.equal(calls.npmViewLatest, 0);
     assert.equal(calls.runInstall.length, 0);
@@ -497,6 +498,7 @@ test('runUpdate', async (t) => {
       to: '1.2.16',
       aud: '1.2.16',
       notice: null,
+      outcome: 'installed',
     });
     assert.deepEqual(calls.runInstall, [['/p', '1.2.16']]);
     assertIncludes(err, '1.2.14 → 1.2.16 に更新します');
@@ -507,7 +509,7 @@ test('runUpdate', async (t) => {
     const { deps, calls, err } = makeDeps({
       npmViewLatest: () => ({ ok: false, reason: 'x' }),
     });
-    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: null, outcome: 'error' });
     assertIncludes(err, 'registry の確認に失敗しました');
     assert.equal(calls.runInstall.length, 0);
   });
@@ -517,7 +519,7 @@ test('runUpdate', async (t) => {
     const { deps, calls, err } = makeDeps({
       detectPrefix: () => null,
     });
-    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: null, outcome: 'error' });
     assertIncludes(err, '手動で更新する');
     assertIncludes(err, '@bash0816/agy-termux@1.2.16');
     assert.equal(calls.runInstall.length, 0);
@@ -532,14 +534,14 @@ test('runUpdate', async (t) => {
       // 元の版 1.2.14 は無事なので、失敗後は元の版のまま終わる
       checkPlacement: (dir, prefix, version) => ({ complete: version === '1.2.14', version, problems: [] }),
     });
-    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: '1.2.16', aud: '1.2.16', notice: null, outcome: 'error' });
     assertIncludes(err, 'バージョンは 1.2.14 のままです');
   });
 
   // U12: 入力の不正
   await t.test('U12 現在版の形式が不正なら code 1 を返し、取得に進まない', async () => {
     const { deps, calls, err } = makeDeps({ pkgVersion: 'abc' });
-    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: null, to: null, aud: null, notice: null });
+    assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: null, to: null, aud: null, notice: null, outcome: 'error' });
     assert.equal(calls.fetchAudited.length, 0);
     assertIncludes(err, 'バージョン形式を比較できません');
   });
@@ -547,7 +549,7 @@ test('runUpdate', async (t) => {
   await t.test('U12 AGY_TERMUX_VERIFIED_URL が不正(空文字を含む)なら code 1 を返し、取得に進まない', async () => {
     for (const urlError of ['http://x', '']) {
       const { deps, calls, err } = makeDeps({ urlError });
-      assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: null, aud: null, notice: null }, `urlError: ${JSON.stringify(urlError)}`);
+      assert.deepEqual(await au.runUpdate(deps), { code: 1, installed: false, pkgDir: null, from: '1.2.14', to: null, aud: null, notice: null, outcome: 'error' }, `urlError: ${JSON.stringify(urlError)}`);
       assertIncludes(err, 'AGY_TERMUX_VERIFIED_URL が不正');
       assert.equal(calls.fetchAudited.length, 0);
     }
@@ -681,5 +683,76 @@ test('createDeps', async (t) => {
     assert.equal(deps.detectPrefix(), null);
     assert.equal(computeCalled, false);
     assert.equal(deps.realFilePath(), '/fake/agy.js');
+  });
+});
+
+test('runUpdate outcome', async (t) => {
+  // O1: 現在版と監査済み版が同じ
+  await t.test('O1 current: 現在版と監査済み版が同じなら outcome は current', async () => {
+    const { deps } = makeDeps({ pkgVersion: '1.2.16' });
+    assert.equal((await au.runUpdate(deps)).outcome, 'current');
+  });
+
+  // O2: 現在版が監査済み版より新しい
+  await t.test('O2 ahead: 現在版が監査済み版より新しいなら outcome は ahead', async () => {
+    const { deps } = makeDeps({ pkgVersion: '1.3.0' });
+    assert.equal((await au.runUpdate(deps)).outcome, 'ahead');
+  });
+
+  // O3: npm の latest が監査済み版と違う
+  await t.test('O3 deferred: npm の latest が監査済み版と違えば outcome は deferred', async () => {
+    const { deps } = makeDeps({
+      pkgVersion: '1.2.14',
+      npmViewLatest: () => ({ ok: true, version: '1.2.17' }),
+      notified: { has: () => false, record: () => true },
+    });
+    assert.equal((await au.runUpdate(deps)).outcome, 'deferred');
+  });
+
+  // O4: 正常な更新
+  await t.test('O4 installed: 正常に配置できれば outcome は installed', async () => {
+    const { deps } = makeDeps({ pkgVersion: '1.2.14', preflight: async () => ({ ok: true }) });
+    assert.equal((await au.runUpdate(deps)).outcome, 'installed');
+  });
+
+  // O5: npm は配置後に失敗したが、新しい版は完全(installWarning あり)
+  await t.test('O5 installed: npm が失敗しても新しい版が完全なら outcome は installed で installWarning を持つ', async () => {
+    const { deps } = makeDeps({
+      pkgVersion: '1.2.14',
+      preflight: async () => ({ ok: true }),
+      runInstall: () => ({ ok: false }),
+      checkPlacement: (dir, prefix, version) => ({ complete: version === '1.2.16', version, problems: [] }),
+    });
+    const r = await au.runUpdate(deps);
+    assert.equal(r.outcome, 'installed');
+    assert.ok('installWarning' in r);
+  });
+
+  // O6: 事前確認で停止
+  await t.test('O6 preflight: 事前確認が失敗したら outcome は preflight で、更新しない', async () => {
+    const { deps, calls } = makeDeps({
+      pkgVersion: '1.2.14',
+      preflight: async () => ({ ok: false, status: 'error', reason: 'disk' }),
+    });
+    assert.equal((await au.runUpdate(deps)).outcome, 'preflight');
+    assert.equal(calls.runInstall.length, 0);
+  });
+
+  // O7: 失敗のいずれか(error)
+  await t.test('O7 error: 監査済み版の取得に失敗したら outcome は error', async () => {
+    const { deps } = makeDeps({
+      fetchAudited: () => Promise.reject(new Error('net down')),
+    });
+    assert.equal((await au.runUpdate(deps)).outcome, 'error');
+  });
+
+  await t.test('O7 error: 更新に失敗し元の版が無事なら outcome は error', async () => {
+    const { deps } = makeDeps({
+      pkgVersion: '1.2.14',
+      preflight: async () => ({ ok: true }),
+      runInstall: () => ({ ok: false }),
+      checkPlacement: (dir, prefix, version) => ({ complete: version === '1.2.14', version, problems: [] }),
+    });
+    assert.equal((await au.runUpdate(deps)).outcome, 'error');
   });
 });

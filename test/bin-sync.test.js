@@ -110,7 +110,7 @@ test('L1 launch miss: キャッシュが無ければ取得してから loader �
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), true);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, '.version')), false);
   assert.equal(countGets(sb), 1);
-  assert.match(r.stderr, /\[agy\] 1\.3\.0 のバイナリを取得します\(初回のみ・数分かかることがあります。次回からは取得しません\)/);
+  assert.match(r.stderr, /\[agy\] 1\.3\.0 のバイナリが未取得のため取得します\(初回のみ・数分かかることがあります。次回からは取得しません\)/);
 });
 
 test('L2 launch hit: キャッシュがあれば取得せず loader を起動する', () => {
@@ -170,7 +170,7 @@ test('L5 REFRESH で取得に失敗したら救済せず非ゼロで終了し、
   assert.deepEqual(h.listDir(sb.cacheDir).filter((n) => n.endsWith('.tmp')), []);
 });
 
-test('F1 流れ1: 旧形式キャッシュがあっても update で版別ファイルを作り、10 分以内の旧ファイルは掃除しない', () => {
+test('F1 流れ1: 旧形式キャッシュがあっても update は取得せず、版別ファイルも旧ファイルも触らない', () => {
   const sb = setup('f1', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.2.16');
   fs.mkdirSync(sb.cacheDir, { recursive: true });
@@ -184,13 +184,13 @@ test('F1 流れ1: 旧形式キャッシュがあっても update で版別ファ
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /使用中の 1\.3\.0 は、公開されている監査済み版 \(1\.2\.16\) より新しいため、更新はしません\(ダウングレードもしません\)/);
   assert.doesNotMatch(r.stdout, /Already on latest audited version/);
-  assert.match(r.stdout, /バイナリを 1\.3\.0 に取得しました/);
-  // 旧形式は mtime が直前に作られたばかり(10分以内)なので掃除の対象外。削除もされず、rm の案内も出ない
+  // update は取得も掃除もしない。旧形式だけなので「未取得」を示し、旧ファイルは残る。rm の案内も出ない
+  assert.match(r.stdout, /\[agy\] バイナリは未取得です。agy を実行すると、必要に応じて取得します/);
   assert.equal(fs.existsSync(legacyBin), true);
   assert.equal(fs.existsSync(legacyVersion), true);
   assert.doesNotMatch(r.stdout, /rm -f -- /);
-  assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), true);
-  assert.equal(countGets(sb), 1);
+  assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), false);
+  assert.equal(countGets(sb), 0);
   assert.deepEqual(h.readLog(sb.npmLog), []);
   assert.deepEqual([sha256File(legacyBin), sha256File(legacyVersion)], before);
 
@@ -201,7 +201,7 @@ test('F1 流れ1: 旧形式キャッシュがあっても update で版別ファ
 
   const again = update(sb);
   assert.equal(again.status, 0, again.stderr);
-  assert.match(again.stdout, /バイナリは最新です \(1\.3\.0\)/);
+  assert.match(again.stdout, /\[agy\] バイナリは取得済みです \(1\.3\.0\)/);
 });
 
 test('F2 流れ2: update で版が上がると、新しいパッケージの pin で新しい版を取得して起動する', () => {
@@ -375,16 +375,17 @@ test('M2 移行: 監査済み版基準コード(102ab9a)から update しても�
   assert.equal(countGets(sb, NEW_URL), 1);
 });
 
-test('E1 取得失敗→起動で回復: 取得に失敗した update は失敗し、その後の launch で取得して起動する', () => {
+test('E1 取得は launch で行う: update は取得せず、その後の launch で取得して起動する', () => {
   const sb = setup('e1', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   const original = JSON.parse(fs.readFileSync(sb.routes, 'utf8'))[TARBALL_URL];
   setRoute(sb.routes, { kind: 'corrupt' });
 
-  // (a) 取得が壊れていると update は失敗し、版別ファイルも一時ファイルも残さない
+  // (a) update は取得しないので、壊れた取得経路に触れずに成功し、「未取得」を 1 行示す。版別ファイルも一時ファイルも作らない
   const r = update(sb);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /ダウンロードしたファイルの検証に失敗しました/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /\[agy\] バイナリは未取得です。agy を実行すると、必要に応じて取得します/);
+  assert.equal(countGets(sb), 0);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), false);
   const tmps = fs.existsSync(sb.cacheDir) ? fs.readdirSync(sb.cacheDir).filter((f) => f.endsWith('.tmp')) : [];
   assert.deepEqual(tmps, []);
@@ -434,11 +435,12 @@ test('E3 更新先に binary-cache.js が無い: 警告を出して成功し、�
   setRoute(sb.routes, { kind: 'file', file: newBin.tarPath }, NEW_URL);
   setAuditedRoute(sb.routes, '1.3.0');
 
-  // (a) update は成功するが、バイナリは取得せず、警告を出す
+  // (a) update は成功するが、バイナリは取得せず、標準出力と標準エラーに案内を出す
   const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /警告/);
-  assert.match(r.stderr, /AGY_TERMUX_REFRESH=1/);
+  assert.match(r.stdout, /\[agy\] パッケージを 1\.2\.14 → 1\.3\.0 に更新しました/);
+  assert.match(r.stderr, /バイナリ: このバージョンには同期機能が無いため同期していません/);
+  assert.match(r.stderr, /AGY_TERMUX_REFRESH=1 agy を実行してください/);
   assert.doesNotMatch(r.stdout, /バイナリを 1\.3\.0 に更新しました/);
   assert.equal(countGets(sb, NEW_URL), 0);
   assert.deepEqual(h.readLog(sb.npmLog), [
@@ -466,36 +468,38 @@ test('E4 引き継ぎ先の同期が失敗: 取得に失敗して終了し、パ
   // (b) update は失敗する。パッケージは 1.3.0 に更新済み
   const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /バイナリの取得に失敗しました/);
+  assert.match(r.stderr, /バイナリ: 取得に失敗しました/);
   const pkgJson = JSON.parse(fs.readFileSync(path.join(sb.prefix, 'lib', 'node_modules', '@bash0816', 'agy-termux', 'package.json'), 'utf8'));
   assert.equal(pkgJson.version, '1.3.0');
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), false);
 });
 
-test('E5 同意なし(非 TTY): 質問せず終了コード 1 で止まり、取得もしない', () => {
+test('E5 update は同意を質問しない: 同意なし(非 TTY)でも質問せず、取得もしない', () => {
   const sb = setup('e5', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   // setup は consent を書くので、ここで消す
   fs.rmSync(path.join(sb.cacheDir, '.consent'), { force: true });
 
   const r = update(sb);
-  // 非 TTY で同意がない場合は、取得せずに終了 1 で案内する。削除も .consent の作成もしない
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /同意の入力がありません。端末から agy update または agy を実行してください/);
+  // update は同意を質問せず、取得もしない。同意の案内も出さず、成功(終了 0)する。.consent の作成もしない
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /同意の入力がありません/);
   assert.doesNotMatch(r.stdout, /今回はバイナリ同期を省略しました/);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), false);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, '.consent')), false);
   assert.equal(countGets(sb), 0);
 });
 
-test('E6 loader 無し: 取得前に失敗し、取得も手動削除の案内も出さない', () => {
+test('E6 update は loader を確認しない: loader 無しでも失敗せず、取得も手動削除の案内も出さない', () => {
   const sb = setup('e6', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   fs.rmSync(path.join(sb.prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1'), { force: true });
 
+  // update は loader を見ないので成功し、キャッシュ無しの「未取得」を 1 行示す。pkg install の案内も出さない
   const r = update(sb);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /pkg install glibc-repo/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /\[agy\] バイナリは未取得です/);
+  assert.doesNotMatch(r.stderr, /pkg install glibc-repo/);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, 'agy-1.3.0.bin')), false);
   assert.equal(countGets(sb), 0);
   assert.doesNotMatch(r.stdout, /手動で削除できる/);
@@ -542,24 +546,21 @@ function listCache(sb) {
   return out.sort();
 }
 
-test('P1 update が掃除する: 直前の版と pin の版以外の版別ファイルと古い一時ファイルを消し、残すものは残す', () => {
+test('P1 update(更新なし)は掃除しない: 版別ファイルも古い一時ファイルも消さない', () => {
   const sb = setup('p1', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   seedCache(sb);
+  const seeded = listCache(sb);
 
   const r = update(sb);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /バイナリを 1\.3\.0 に取得しました/);
-  assert.deepEqual(listCache(sb), [
-    '.bin',
-    '.consent',
-    '.version',
-    'agy-1.2.14.bin',
-    'agy-1.2.14.bin.99999998.abcd1234.tmp',
-    'agy-1.3.0.bin',
-    'agy-foo.bin',
-    'unverified/agy-9.9.9.bin',
-  ]);
+  // 「バイナリ」の状態行は 1 行だけ。VA39 判定によって結果が変わるため、4 つの状態のいずれかを許容する
+  // (同版の "Already on latest audited version" 行は lib/audited-update.js が出す既存の行で、ここでは対象外)
+  const stateLines = r.stdout.split('\n').filter((l) => l.startsWith('[agy] バイナリ'));
+  assert.equal(stateLines.length, 1, r.stdout);
+  assert.match(stateLines[0], /^\[agy\] (バイナリは取得済みです \(1\.3\.0\)|バイナリは未取得です。|バイナリが壊れているか期待と異なります。|バイナリの状態を判定できません$)/);
+  assert.equal(countGets(sb), 0);
+  assert.deepEqual(listCache(sb), seeded);
 });
 
 test('P2 launch は掃除しない: 取得しても既存の版別ファイルは消さない', () => {
@@ -573,7 +574,7 @@ test('P2 launch は掃除しない: 取得しても既存の版別ファイル�
   assert.deepEqual(listCache(sb), [...seeded, 'agy-1.3.0.bin'].sort());
 });
 
-test('P3 同意なしの省略では掃除しない: 同期を省略した update は何も削除しない', () => {
+test('P3 同意が無くても update は何も削除しない: 同意の質問も取得も掃除もしない', () => {
   const sb = setup('p3', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   seedCache(sb);
@@ -581,14 +582,16 @@ test('P3 同意なしの省略では掃除しない: 同期を省略した updat
   fs.rmSync(path.join(sb.cacheDir, '.consent'), { force: true });
 
   const r = update(sb);
-  // 非 TTY で同意がない update は、取得も削除もせず終了 1 で案内する
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /同意の入力がありません。端末から agy update または agy を実行してください/);
+  // 同意がなくても update は同意を尋ねず、取得も削除もせず終了 0 で状態だけを表示する
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /同意/);
+  assert.doesNotMatch(r.stdout, /同意/);
+  assert.equal(countGets(sb), 0);
   assert.equal(fs.existsSync(path.join(sb.cacheDir, '.consent')), false);
   assert.deepEqual(listCache(sb), seeded.filter((f) => f !== '.consent'));
 });
 
-test('P4 取得失敗では掃除しない: 失敗した update は何も削除せず、一時ファイルも増やさない', () => {
+test('P4 update は取得も掃除もしない: 一時ファイルも増やさず、何も削除しない', () => {
   const sb = setup('p4', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   seedCache(sb);
@@ -596,7 +599,8 @@ test('P4 取得失敗では掃除しない: 失敗した update は何も削除�
   setRoute(sb.routes, { kind: 'corrupt' });
 
   const r = update(sb);
-  assert.equal(r.status, 1, r.stdout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(countGets(sb), 0);
   assert.deepEqual(listCache(sb), seeded);
 });
 
@@ -629,9 +633,17 @@ test('U1 update は REFRESH/FORCE_LATEST を無視する: 既存の pin 版を�
   assert.equal(seed.status, 0, seed.stderr);
   assert.equal(countGets(sb), 1);
 
-  const r = update(sb, { AGY_TERMUX_REFRESH: '1', AGY_TERMUX_FORCE_LATEST: '1' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /バイナリは最新です \(1\.3\.0\)/);
+  // REFRESH=1 だけを指定した update: 既存の pin 版を再取得せず、状態だけを表示する
+  const rRefresh = update(sb, { AGY_TERMUX_REFRESH: '1' });
+  assert.equal(rRefresh.status, 0, rRefresh.stderr);
+  assert.match(rRefresh.stdout, /\[agy\] バイナリは取得済みです \(1\.3\.0\)/);
+  assert.equal(countGets(sb), 1);
+  assert.equal(h.readLog(sb.mockLog).some((l) => l.includes('api.github.com')), false);
+
+  // FORCE_LATEST=1 だけを指定した update: 最新版 API を呼ばず、状態だけを表示する
+  const rLatest = update(sb, { AGY_TERMUX_FORCE_LATEST: '1' });
+  assert.equal(rLatest.status, 0, rLatest.stderr);
+  assert.match(rLatest.stdout, /\[agy\] バイナリの状態を判定できません/);
   assert.equal(countGets(sb), 1);
   assert.equal(h.readLog(sb.mockLog).some((l) => l.includes('api.github.com')), false);
 });
@@ -677,7 +689,7 @@ function writeInvalidVa39Expectation(sb) {
   writePinConfig(sb.pkgDir, cfg);
 }
 
-test('SY1 VA39 の期待値が不正なら、同版の agy update は偽キャッシュを採用せず error にし、取得も掃除もしない', () => {
+test('SY1 VA39 の期待値が不正なら、同版の agy update は偽キャッシュを採用せず『判定できません』にし、取得も掃除もしない', () => {
   const sb = setup('sy1', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   writeInvalidVa39Expectation(sb);
@@ -685,10 +697,11 @@ test('SY1 VA39 の期待値が不正なら、同版の agy update は偽キャ�
   const before = sha256File(cachePath);
 
   const r = update(sb, { MOCK_VA_BITS: '39' });
-  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /\[agy\] バイナリの状態を判定できません/, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /取得済みです/, r.stdout + r.stderr);
   assert.equal(countGets(sb), 0, r.stdout + r.stderr);
   assert.equal(sha256File(cachePath), before, r.stdout + r.stderr);
-  assert.match(r.stdout + r.stderr, /検証済みの期待値が不足しているため、起動を停止しました/, r.stdout + r.stderr);
 });
 
 test('SY2 VA39 の期待値が不正なら、同期専用の経路(update --sync-binary-only)も error で非ゼロ終了し、取得しない', () => {
@@ -715,7 +728,7 @@ test('SY3 VA39 の pin が有効で、偽キャッシュのサイズと ELF が�
   assert.equal(countGets(sb), 0, r.stdout + r.stderr);
 });
 
-test('SY4 VA39 の pin が有効でも、サイズが違うキャッシュは current にならず、同期は取得に進む', () => {
+test('SY4 VA39 の pin が有効でも、サイズが違うキャッシュは『取得済み』にならず、update は取得しない', () => {
   const sb = setup('sy4', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
   writeValidVa39Expectation(sb);
@@ -723,7 +736,10 @@ test('SY4 VA39 の pin が有効でも、サイズが違うキャッシュは cu
   const before = sha256File(cachePath);
 
   const r = update(sb, { MOCK_VA_BITS: '39' });
-  assert.equal(countGets(sb), 1, r.stdout + r.stderr);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /\[agy\] バイナリが壊れているか期待と異なります。agy を実行すると、必要に応じて取得し直します/, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /取得済みです/, r.stdout + r.stderr);
+  assert.equal(countGets(sb), 0, r.stdout + r.stderr);
   assert.equal(fs.existsSync(cachePath), true, r.stdout + r.stderr);
   assert.equal(sha256File(cachePath), before, r.stdout + r.stderr);
 });

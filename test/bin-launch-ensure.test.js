@@ -241,3 +241,75 @@ test('V3 VA39 の pin が有効で、キャッシュのサイズと ELF が期�
   assert.deepEqual(loaderPaths(r.stdout), [cachePath], r.stderr);
   assert.equal(countGets(sb), 0, r.stderr);
 });
+
+// text の中に sub が出る回数
+function countOf(text, sub) {
+  return text.split(sub).length - 1;
+}
+
+test('R1 REFRESH=1 の予告: 有効なキャッシュがあっても REFRESH=1 なら、REFRESH の理由で取得し直す', () => {
+  const sb = setup('r1', '1.3.0');
+  const first = launch(sb);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(countGets(sb), 1);
+
+  const r = launch(sb, { AGY_TERMUX_REFRESH: '1' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(countOf(r.stderr, '[agy] AGY_TERMUX_REFRESH=1 のため、1.3.0 のバイナリを取得し直します'), 1, r.stderr);
+  assert.doesNotMatch(r.stderr, /未取得のため/);
+  assert.doesNotMatch(r.stderr, /壊れているか/);
+  assert.equal(countGets(sb), 2);
+});
+
+test('R2 壊れたキャッシュの予告: サイズ不足のキャッシュは『壊れているか期待と異なる』理由で取得し直す', () => {
+  const sb = setup('r2', '1.3.0');
+  fs.mkdirSync(sb.cacheDir, { recursive: true });
+  // 10MiB 未満の小さいファイル(先頭の ELF マジックだけ合う)を置く
+  const small = Buffer.alloc(1024);
+  small[0] = 0x7f;
+  small.write('ELF', 1, 'latin1');
+  fs.writeFileSync(sb.target, small);
+
+  const r = launch(sb);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(countOf(r.stderr, '[agy] 1.3.0 のバイナリが壊れているか期待と異なるため取得し直します'), 1, r.stderr);
+  assert.doesNotMatch(r.stderr, /未取得のため/);
+  assert.equal(countGets(sb), 1);
+  assert.deepEqual(loaderPaths(r.stdout), [sb.target]);
+});
+
+test('R3 自己回復の理由は重ならない: 起動した成果物が消えたときは、自己回復の行だけを出し、取得の理由行を重ねない', () => {
+  const sb = setup('r3', '1.3.0');
+  const first = launch(sb);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(countGets(sb), 1);
+
+  // E5 と同じ準備: 1 回目の起動では成果物を消して失敗し、2 回目以降は正常に起動する
+  const counter = path.join(sb.dir, 'loader-count');
+  fs.writeFileSync(path.join(sb.prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1'), [
+    `#!${process.execPath}`,
+    "const fs = require('node:fs');",
+    'const args = process.argv.slice(2);',
+    "const bin = args[args.indexOf('--library-path') + 2];",
+    'const counter = process.env.COUNTER_FILE;',
+    'const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;',
+    'fs.writeFileSync(counter, String(n + 1));',
+    'if (n === 0) { fs.rmSync(bin); process.stderr.write("vanished\\n"); process.exit(1); }',
+    "console.log('LOADER_RAN version=1.3.0 path=' + bin);",
+    'process.exit(0);',
+    '',
+  ].join('\n'));
+  fs.chmodSync(path.join(sb.prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1'), 0o755);
+
+  const r = launch(sb, { COUNTER_FILE: counter });
+  assert.equal(r.status, 0, r.stderr);
+  const healMsg = '[agy] キャッシュが入れ替わったため、取得し直して起動します...';
+  assert.equal(countOf(r.stderr, healMsg), 1, r.stderr);
+  // 自己回復の行より後に、取得の理由行が出ないこと
+  const afterHeal = r.stderr.slice(r.stderr.indexOf(healMsg) + healMsg.length);
+  assert.doesNotMatch(afterHeal, /未取得のため/, r.stderr);
+  assert.doesNotMatch(afterHeal, /壊れているか/, r.stderr);
+  assert.doesNotMatch(afterHeal, /AGY_TERMUX_REFRESH=1 のため/, r.stderr);
+  assert.equal(countGets(sb), 2);
+  assert.deepEqual(loaderPaths(r.stdout), [sb.target]);
+});

@@ -314,10 +314,89 @@ test('W6 --version は副作用ゼロ', () => {
 
 // W7 通常の update でも、不要な書き込み(~/.agy-termux の作成)をしない
 test('W7 update は隔離 HOME に .agy-termux を作らない', () => {
-  // 同意ファイルなし: 非 TTY の update は同意待ちで exit 1 になり、その間に .agy-termux を作らない
+  // 同意ファイルなし。今の版は監査済み版と同じ(更新なし)なので、同意の質問も取得も行わず、状態を 1 行出して exit 0 で終わる
   const sb = setup('w7', '1.2.16', { consent: false });
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok' });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /同意の入力がありません/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /同意/);
+  const lastLine = r.stdout.trimEnd().split('\n').pop();
+  assert.match(lastLine, /^\[agy\] (バイナリは取得済みです \(|バイナリは未取得です。|バイナリが壊れているか期待と異なります。|バイナリの状態を判定できません)/);
   assert.equal(fs.existsSync(path.join(sb.home, '.agy-termux')), false);
+});
+
+// --version の注記(キャッシュ状態を標準エラーに 1 行)。bin-sync.test.js の VA39 キャッシュ準備(writeValidVa39Expectation /
+// writeFakeVa39Cache)を複製している(ヘルパーはファイル間で共有しない)。pin の期待値を VA39 用に書き、同名のキャッシュ先に偽ファイルを置く
+const VERSION_VA39_SIZE = 10 * 1024 * 1024 + 4096;
+function prepareVa39Cache(sb, tag, size = VERSION_VA39_SIZE) {
+  const { cachePaths } = require('../lib/binary-cache');
+  const pkgDir = path.resolve(path.dirname(sb.agy), '..');
+  const pinPath = path.join(pkgDir, 'config', 'agy-verified-versions.json');
+  const cfg = JSON.parse(fs.readFileSync(pinPath, 'utf8'));
+  cfg.va39_patched_size = VERSION_VA39_SIZE;
+  cfg.va39_patch_breakdown = [
+    { kind: 'main', offset: 0, size: VERSION_VA39_SIZE, counts: { ...cfg.va39_patch_counts } },
+  ];
+  fs.writeFileSync(pinPath, JSON.stringify(cfg, null, 2) + '\n');
+  const cacheDir = path.join(sb.home, '.agy-termux');
+  const file = cachePaths({ dir: cacheDir, tag, isPatch: true, unverified: false }).file;
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const buf = Buffer.alloc(size);
+  buf[0] = 0x7f;
+  buf.write('ELF', 1, 'latin1');
+  fs.writeFileSync(file, buf);
+  return file;
+}
+
+// 標準エラーがちょうど 1 行で、期待する文字列を含むことを確かめる
+function assertOneErrorLine(stderr, expected) {
+  const lines = stderr.trimEnd().split('\n');
+  assert.equal(lines.length, 1, stderr);
+  assert.ok(lines[0].includes(expected), stderr);
+}
+
+// --version の別名(4 つ)
+const VERSION_ALIASES = ['--version', '-v', '-V', 'version'];
+
+test('--version 注記: キャッシュが無ければ 1行目は不変で、標準エラーに『バイナリは未取得です』を1行出し、終了コード 0', () => {
+  VERSION_ALIASES.forEach((alias, i) => {
+    const sb = setup(`u5a-${i}`, '1.2.16', { consent: false });
+    const r = runAgy(sb, [alias], { MOCK_HTTPS_MODE: 'tripwire' });
+    assert.equal(r.status, 0, `${alias}: ${r.stderr}`);
+    assert.equal(r.stdout, 'agy-termux 1.2.16\n', alias);
+    assertOneErrorLine(r.stderr, '[agy] バイナリは未取得です。agy を実行すると、必要に応じて取得します');
+    // 通信は 0 回、隔離 HOME には何も作らない
+    assert.deepEqual(readLog(sb.mockLog), [], alias);
+    assert.deepEqual(readLog(sb.npmLog), [], alias);
+    assert.deepEqual(fs.readdirSync(sb.home), [], alias);
+  });
+});
+
+test('--version 注記: 有効なキャッシュがあれば注記を出さない', () => {
+  const sb = setup('u5b', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  assert.deepEqual(readLog(sb.mockLog), []);
+});
+
+test('--version 注記: 壊れたキャッシュは『壊れているか期待と異なります』', () => {
+  const sb = setup('u5c', '1.2.16', { consent: false });
+  // 期待サイズ(10MiB 超)より小さい偽ファイルを置く
+  prepareVa39Cache(sb, '1.2.16', 1024);
+  const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  assertOneErrorLine(r.stderr, 'バイナリが壊れているか期待と異なります');
+  assert.deepEqual(readLog(sb.mockLog), []);
+});
+
+test('--version 注記: FORCE_LATEST=1 では『判定できません』', () => {
+  const sb = setup('u5d', '1.2.16', { consent: false });
+  const r = runAgy(sb, ['--version'], { AGY_TERMUX_FORCE_LATEST: '1', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  assertOneErrorLine(r.stderr, 'バイナリの状態を判定できません');
+  assert.deepEqual(readLog(sb.mockLog), []);
 });

@@ -153,10 +153,20 @@ async function main() {
   const args = process.argv.slice(2);
 
   // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn・
-  // ファイルシステムへの書き込みは一切行わない（副作用ゼロを維持するため、legacy cleanupより前に早期return する）。
+  // ファイルシステムへの書き込みは一切行わない。キャッシュの状態を読むだけ（legacy cleanupより前に早期return する）。
   if (['--version', '-v', '-V', 'version'].includes(args[0])) {
     const pkg = require('../package.json');
     console.log(`agy-termux ${pkg.version}`);
+    // バイナリが未取得・破損・判定不能のときだけ、標準エラーに注記を1行足す(読み取りのみ・通信なし)。失敗しても1行目と終了コードは変えない
+    try {
+      const { inspectPinned } = require('../lib/binary-cache');
+      const { readPinnedMeta } = require('../lib/downloader');
+      const { cacheStateLine } = require('../lib/render-final');
+      const ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
+      if (ins.state !== 'ok') console.error(cacheStateLine(ins.state, ins.tag));
+    } catch {
+      // 注記を出せなくても --version 自体は成功させる
+    }
     process.exit(0);
   }
 
@@ -177,7 +187,7 @@ async function main() {
   if (['update','--update','upgrade'].includes(args[0])) {
     // 判定ロジックは lib/audited-update.js に分離(監査済み版を基準にする)
     const { spawnSync } = require('child_process');
-    const { renderFinal, renderUnknownResult, parseResult } = require('../lib/render-final');
+    const { renderFinal, renderUnknownResult, parseResult, cacheStateLine } = require('../lib/render-final');
     const { runSyncChild } = require('../lib/run-sync-child');
     // 更新後の新しいコードから呼ばれる同期専用の経路。更新判定は行わない
     if (args[1] === '--sync-binary-only') {
@@ -214,12 +224,22 @@ async function main() {
       process.exit(rf.code);
     }
     if (r.code !== 0) process.exit(r.code);
-    // 版が変わっていない(install されなかった)場合は、現在のコードでバイナリだけ同期する
+    // 版が変わっていない(install されなかった)場合は、バイナリを取得せず、いまのキャッシュの状態だけを示す
     if (!r.installed) {
-      const result = await syncResultOrError();
-      const rf = renderFinal({ installed: false, result });
-      printLines(rf.lines);
-      process.exit(rf.code);
+      let ins;
+      try {
+        const { inspectPinned } = require('../lib/binary-cache');
+        const { readPinnedMeta } = require('../lib/downloader');
+        ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
+      } catch {
+        ins = { state: 'unknown', tag: null };
+      }
+      // 監査済み版は新しいが公開待ちで見送った場合は、更新できていないことを毎回示す(詳細な通知は未通知のときだけ出る)
+      if (r.outcome === 'deferred') {
+        console.log('[agy] 更新候補 ' + r.aud + ' がありますが、公開状況の確認が取れていないため見送り中です(使用中: ' + r.from + ')');
+      }
+      console.log(cacheStateLine(ins.state, ins.tag));
+      process.exit(0);
     }
     // 更新後の package.json をディスクから読み直す(require のキャッシュは使わない)
     let newVer;
@@ -233,7 +253,8 @@ async function main() {
     }
     // 旧版には binary-cache.js が無いので、同期は行わず案内だけ出す
     if (!fs.existsSync(path.join(r.pkgDir, 'lib', 'binary-cache.js'))) {
-      console.error('[agy] 警告: パッケージは ' + r.aud + ' に更新済みですが、このバージョンにはバイナリ同期機能が含まれていないため、バイナリは同期されていません。agy の版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください。');
+      console.log('[agy] パッケージを ' + r.from + ' → ' + r.aud + ' に更新しました');
+      console.error('[agy] バイナリ: このバージョンには同期機能が無いため同期していません。版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください');
       process.exit(0);
     }
     // 新しいコードに同期を任せる。結果は fd 3 で受け取る
@@ -245,7 +266,7 @@ async function main() {
     const result = parseResult(c.text);
     const rf = result
       ? renderFinal({ installed: true, from: r.from, to: r.to, result })
-      : renderUnknownResult({ to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
+      : renderUnknownResult({ from: r.from, to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
     printLines(rf.lines);
     process.exit(rf.code);
   }
@@ -292,7 +313,9 @@ async function main() {
   const { file: tmp } = bc.cachePaths({ dir: INSTALL_DIR, tag: tagName, isPatch, unverified: useLatest });
   // VA39 pin は期待サイズも要求する。キャッシュの健全性チェック(サイズ + ELFマジックバイト)。壊れている場合は再取得させる
   const expectedSize = isPatch && !useLatest ? meta.expectation.va39_patched_size : undefined;
-  const cacheHit = !forceRefresh && bc.isCacheValid(fs, tmp, { expectedSize });
+  // 'ok' | 'missing' | 'invalid'。取得の予告に理由を出すため状態を保持する
+  const cacheState = bc.inspectFile({ fs, file: tmp, expectedSize });
+  const cacheHit = !forceRefresh && cacheState === 'ok';
 
   if (!cacheHit && isPatch) {
     const c = await consent.gateCompat();
@@ -301,8 +324,14 @@ async function main() {
   }
 
   // バイナリを取得して配置する。取得の前に予告を出す(取得の進捗はダウンロード側が出す)
-  const install = async () => {
-    process.stderr.write(`[agy] ${tagName} のバイナリを取得します(初回のみ・数分かかることがあります。次回からは取得しません)\n`);
+  const install = async (reason) => {
+    // 取得の理由を示す。自己回復('self_heal')は直前に専用の行を出しているので、ここでは出さない
+    const preface = {
+      refresh: `AGY_TERMUX_REFRESH=1 のため、${tagName} のバイナリを取得し直します`,
+      missing: `${tagName} のバイナリが未取得のため取得します(初回のみ・数分かかることがあります。次回からは取得しません)`,
+      invalid: `${tagName} のバイナリが壊れているか期待と異なるため取得し直します`,
+    }[reason];
+    if (preface) process.stderr.write('[agy] ' + preface + '\n');
     // 取得前に既存キャッシュは消さない。配置は一時ファイル経由の rename で行う
     await bc.installBinary({
       download: downloadBinary,
@@ -334,20 +363,20 @@ async function main() {
     });
   });
   // 必要なら取得してから loader を起動する
-  const launchOnce = async (needInstall) => {
+  const launchOnce = async (needInstall, reason) => {
     if (needInstall) {
-      try { await install(); } catch (err) { failAndExit(err); }
+      try { await install(reason); } catch (err) { failAndExit(err); }
     }
     return runLoader();
   };
 
   // 自己回復は launch 全体で 1 回だけ。キャッシュの実体が消えていた場合に限り、取得し直して起動する
   let recovered = false;
-  let r = await launchOnce(!cacheHit);
+  let r = await launchOnce(!cacheHit, forceRefresh ? 'refresh' : cacheState);
   if (!r.signal && r.code !== 0 && !fs.existsSync(tmp) && !recovered) {
     recovered = true;
     process.stderr.write('[agy] キャッシュが入れ替わったため、取得し直して起動します...\n');
-    r = await launchOnce(true);
+    r = await launchOnce(true, 'self_heal');
   }
   process.exit(r.signal ? 1 : (r.code ?? 0));
 }

@@ -392,13 +392,13 @@ test('isTransientFetchFailure: errno が文字列でも code で判定する', (
 
 test('describeFailure: VA39 の 4 code の文言が完全一致する', () => {
   assert.deepEqual(describeFailure({ code: 'VA39_PATCH_UNSUPPORTED' }), [
-    '互換調整を適用できないバイナリです(構造が想定と異なります)。この版の agy-termux では起動できません。agy-termux の更新をお待ちください',
+    '互換調整を適用できないバイナリです(構造が想定と異なります)。この版の agy-termux では起動できません。agy-termux の新しい版をお待ちください',
   ])
   assert.deepEqual(describeFailure({ code: 'VA39_COUNT_MISMATCH' }), [
-    'このバイナリは検証済みの構成と一致しません。起動を停止しました。agy-termux の更新をお待ちください',
+    'このバイナリは検証済みの構成と一致しません。起動を停止しました。agy-termux の新しい版をお待ちください',
   ])
   assert.deepEqual(describeFailure({ code: 'VA39_EXPECTATION_MISSING' }), [
-    '検証済みの期待値が不足しているため、起動を停止しました。agy-termux の更新をお待ちください',
+    '検証済みの期待値が不足しているため、起動を停止しました。agy-termux の新しい版をお待ちください',
   ])
   assert.deepEqual(describeFailure({ code: 'VA39_REFETCH_REQUIRED' }), [
     '互換調整の修正のため、バイナリを1回だけ取得し直す必要があります(約58MB)。ネットワークに接続してから、もう一度 agy を実行してください',
@@ -424,4 +424,19 @@ test('describeFailure: 既存 code の出力は変わらない', () => {
   assert.deepEqual(describeFailure({ code: 'XYZ', detail: 'd' }), [
     '失敗しました(原因を特定できません: d)。もう一度実行してください',
   ])
+})
+
+test('describeFailure: 全 code の文言に『更新』を含まない', () => {
+  const codes = [
+    'E_STALL', 'E_NET', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED',
+    'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'E_HTTP', 'E_SHA', 'E_ELF',
+    'E_TAR_CORRUPT', 'E_TAR_UNKNOWN', 'ENOSPC', 'EDQUOT', 'EACCES', 'EPERM', 'EROFS',
+    'E_NOSPACE_MAYBE', 'E_NPM_TIMEOUT',
+    'VA39_PATCH_UNSUPPORTED', 'VA39_COUNT_MISMATCH', 'VA39_EXPECTATION_MISSING', 'VA39_REFETCH_REQUIRED',
+  ]
+  for (const code of codes) {
+    for (const line of describeFailure({ code, detail: 'x' })) {
+      assert.doesNotMatch(line, /更新/, code)
+    }
+  }
 })

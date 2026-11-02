@@ -160,10 +160,10 @@ test('installed 真・skipped consent_declined: 文言・out・code 0', () => {
     result: { status: 'skipped', reason: 'consent_declined', tag: '1.0.0', deleted: { count: 0, bytes: 0 } },
   })
   assert.deepStrictEqual(out, {
-    lines: [{
-      stream: 'out',
-      text: `[agy] パッケージは 1.1.0 に更新しました。同意されなかったため、バイナリは取得していません。取得するには、${RETRY}`,
-    }],
+    lines: [
+      { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
+      { stream: 'out', text: `[agy] バイナリ: 同意されなかったため、取得していません。取得するには、${RETRY}` },
+    ],
     code: 0,
   })
 })
@@ -176,10 +176,10 @@ test('installed 真・skipped compat_declined: 文言・out・code 0', () => {
     result: { status: 'skipped', reason: 'compat_declined', tag: '1.0.0', deleted: { count: 0, bytes: 0 } },
   })
   assert.deepStrictEqual(out, {
-    lines: [{
-      stream: 'out',
-      text: `[agy] パッケージは 1.1.0 に更新しました。互換調整に同意されなかったため、バイナリは取得していません。取得するには、${RETRY}`,
-    }],
+    lines: [
+      { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
+      { stream: 'out', text: `[agy] バイナリ: 互換調整に同意されなかったため、取得していません。取得するには、${RETRY}` },
+    ],
     code: 0,
   })
 })
@@ -192,10 +192,10 @@ test('installed 真・error no_input: 文言・err・code 1', () => {
     result: { status: 'error', reason: 'no_input', tag: '', deleted: { count: 0, bytes: 0 } },
   })
   assert.deepStrictEqual(out, {
-    lines: [{
-      stream: 'err',
-      text: '[agy] パッケージは 1.1.0 に更新しました。同意の入力がありません。端末から agy update または agy を実行してください',
-    }],
+    lines: [
+      { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
+      { stream: 'err', text: '[agy] バイナリ: 同意の入力がありません。端末から agy update または agy を実行してください' },
+    ],
     code: 1,
   })
 })
@@ -210,10 +210,10 @@ test('installed 真・error その他: describeFailure の行を半角スペー�
     result: { status: 'error', reason: 'EACCES', error, tag: '', deleted: { count: 0, bytes: 0 } },
   })
   assert.deepStrictEqual(out, {
-    lines: [{
-      stream: 'err',
-      text: `[agy] パッケージは 1.1.0 に更新しました。バイナリの取得に失敗しました(${rows.join(' ')})。原因を解消してから、次に agy を実行してください`,
-    }],
+    lines: [
+      { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
+      { stream: 'err', text: `[agy] バイナリ: 取得に失敗しました(${rows.join(' ')})。原因を解消してから、次に agy を実行してください` },
+    ],
     code: 1,
   })
 })
@@ -268,9 +268,11 @@ test('削除報告: skipped では count 1 以上でも足さない', () => {
     to: '1.1.0',
     result: { status: 'skipped', reason: 'consent_declined', tag: '1.0.0', deleted: { count: 1, bytes: MB } },
   })
-  assert.strictEqual(out.lines.length, 1)
+  assert.strictEqual(out.lines.length, 2)
   assert.strictEqual(out.lines[0].stream, 'out')
-  assert.ok(out.lines[0].text.startsWith('[agy] パッケージは 1.1.0 に更新しました。同意されなかった'))
+  assert.strictEqual(out.lines[0].text, '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました')
+  assert.strictEqual(out.lines[1].stream, 'out')
+  assert.ok(out.lines[1].text.startsWith('[agy] バイナリ: 同意されなかった'))
 })
 
 test('削除報告: error では count 1 以上でも足さない', () => {
@@ -340,10 +342,10 @@ test('result が無い・オブジェクトでない場合も「結果を解釈�
 test('renderUnknownResult: 文言・err・code 1', () => {
   const out = renderUnknownResult({ to: '1.1.0', cause: 'EIO' })
   assert.deepStrictEqual(out, {
-    lines: [{
-      stream: 'err',
-      text: '[agy] パッケージは 1.1.0 に更新しました。バイナリの取得が完了したか確認できませんでした(EIO)。次に agy を実行すると必要なら取得し直します',
-    }],
+    lines: [
+      { stream: 'out', text: '[agy] パッケージを 1.1.0 に更新しました' },
+      { stream: 'err', text: '[agy] バイナリ: 取得が完了したか確認できませんでした(EIO)。次に agy を実行すると必要なら取得し直します' },
+    ],
     code: 1,
   })
 })
@@ -428,10 +430,10 @@ test('installed 真・error loader: 更新済みの旨と glibc の案内文・e
     result: { status: 'error', reason: 'loader', tag: '', deleted: { count: 0, bytes: 0 } },
   })
   assert.deepStrictEqual(out, {
-    lines: [{
-      stream: 'err',
-      text: '[agy] パッケージは 1.1.0 に更新しました。glibc が必要です。pkg install glibc-repo && pkg install glibc を実行してから、もう一度 agy を実行してください',
-    }],
+    lines: [
+      { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
+      { stream: 'err', text: '[agy] バイナリ: glibc が必要です。pkg install glibc-repo && pkg install glibc を実行してから、もう一度 agy を実行してください' },
+    ],
     code: 1,
   })
 })
@@ -455,9 +457,10 @@ test('installed 真・決定的な失敗: 取得し直しの案内を出さず�
   for (const code of DETERMINISTIC_CODES) {
     const out = installedErrorWith(code)
     assert.strictEqual(out.code, 1, code)
-    assert.strictEqual(out.lines.length, 1, code)
-    assert.strictEqual(out.lines[0].stream, 'err', code)
-    const text = out.lines[0].text
+    assert.strictEqual(out.lines.length, 2, code)
+    assert.strictEqual(out.lines[0].text, '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました', code)
+    assert.strictEqual(out.lines[1].stream, 'err', code)
+    const text = out.lines[1].text
     assert.ok(!text.includes('取得し直します'), code)
     assert.ok(text.includes('再実行しても同じ結果になります'), code)
   }
@@ -467,9 +470,10 @@ test('installed 真・環境要因の失敗: 原因を解消してから agy を
   for (const code of ENVIRONMENT_CODES) {
     const out = installedErrorWith(code)
     assert.strictEqual(out.code, 1, code)
-    assert.strictEqual(out.lines.length, 1, code)
-    assert.strictEqual(out.lines[0].stream, 'err', code)
-    const text = out.lines[0].text
+    assert.strictEqual(out.lines.length, 2, code)
+    assert.strictEqual(out.lines[0].text, '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました', code)
+    assert.strictEqual(out.lines[1].stream, 'err', code)
+    const text = out.lines[1].text
     assert.ok(!text.includes('取得し直します'), code)
     assert.ok(text.includes('原因を解消してから'), code)
   }
@@ -479,9 +483,10 @@ test('installed 真・通信障害・REFETCH_REQUIRED・未知コード: 従来�
   for (const code of TRANSIENT_OR_OTHER_CODES) {
     const out = installedErrorWith(code)
     assert.strictEqual(out.code, 1, code)
-    assert.strictEqual(out.lines.length, 1, code)
-    assert.strictEqual(out.lines[0].stream, 'err', code)
-    assert.ok(out.lines[0].text.includes('次に agy を実行すると取得し直します'), code)
+    assert.strictEqual(out.lines.length, 2, code)
+    assert.strictEqual(out.lines[0].text, '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました', code)
+    assert.strictEqual(out.lines[1].stream, 'err', code)
+    assert.ok(out.lines[1].text.includes('次に agy を実行すると取得し直します'), code)
   }
 })
 
@@ -495,4 +500,37 @@ test('installed 偽・同じ error では「取得し直します」「再実行
     assert.ok(!text.includes('取得し直します'), code)
     assert.ok(!text.includes('再実行しても同じ'), code)
   }
+})
+
+test('installed 真・全分岐: 2 行・バイナリ行に「更新」を含まない', () => {
+  const cases = [
+    { status: 'skipped', reason: 'consent_declined', tag: '1.0.0', deleted: { count: 0, bytes: 0 } },
+    { status: 'skipped', reason: 'compat_declined', tag: '1.0.0', deleted: { count: 0, bytes: 0 } },
+    { status: 'error', reason: 'no_input', tag: '', deleted: { count: 0, bytes: 0 } },
+    { status: 'error', reason: 'loader', tag: '', deleted: { count: 0, bytes: 0 } },
+    { status: 'error', tag: 't', deleted: { count: 0, bytes: 0 }, error: { code: 'VA39_PATCH_UNSUPPORTED' } },
+    { status: 'error', tag: 't', deleted: { count: 0, bytes: 0 }, error: { code: 'ENOSPC' } },
+    { status: 'error', tag: 't', deleted: { count: 0, bytes: 0 }, error: { code: 'E_NET' } },
+  ]
+  for (const result of cases) {
+    const out = renderFinal({ installed: true, from: '1.0.0', to: '1.1.0', result })
+    const label = result.reason || result.error.code
+    assert.strictEqual(out.lines.length, 2, label)
+    assert.strictEqual(out.lines[0].stream, 'out', label)
+    assert.strictEqual(out.lines[0].text, '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました', label)
+    assert.ok(out.lines[1].text.startsWith('[agy] バイナリ: '), label)
+    assert.strictEqual(out.lines[1].text.includes('更新'), false, label)
+  }
+})
+
+test('renderUnknownResult: from の有無', () => {
+  const withoutFrom = renderUnknownResult({ to: '1.2.3', cause: 'x' })
+  assert.strictEqual(withoutFrom.lines[0].text, '[agy] パッケージを 1.2.3 に更新しました')
+  assert.strictEqual(withoutFrom.lines.length, 2)
+  assert.strictEqual(withoutFrom.lines[1].text.includes('更新'), false)
+
+  const withFrom = renderUnknownResult({ from: '1.2.2', to: '1.2.3', cause: 'x' })
+  assert.strictEqual(withFrom.lines[0].text, '[agy] パッケージを 1.2.2 → 1.2.3 に更新しました')
+  assert.strictEqual(withFrom.lines.length, 2)
+  assert.strictEqual(withFrom.lines[1].text.includes('更新'), false)
 })
