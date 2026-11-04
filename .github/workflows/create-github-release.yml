@@ -47,6 +47,11 @@ jobs:
             exit 1
           fi
 
+      - name: Verify npm latest matches the version
+        env:
+          RELEASE_VER: ${{ steps.ver.outputs.ver }}
+        run: node scripts/assert-npm-latest.js "$RELEASE_VER"
+
       - name: Create GitHub Release
         run: |
           set -eu
@@ -69,12 +74,9 @@ jobs:
             release_notes="upstream wallentx/antigravity-cli-termux v${ver} 追従。"
           fi
 
-          npm_latest=$(npm view @bash0816/agy-termux dist-tags.latest 2>/dev/null || echo "")
-          if [ "$ver" = "$npm_latest" ]; then
-            latest_flag="--latest"
-          else
-            latest_flag="--latest=false"
-          fi
+          # 直前に npm の latest を確認する(待機なし)。ここで失敗したら Release を作らない
+          node scripts/assert-npm-latest.js "$ver" --once
+          latest_flag="--latest"
 
           notes_file=$(mktemp)
           {
