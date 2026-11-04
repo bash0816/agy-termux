@@ -17,6 +17,9 @@ permissions:
 
 jobs:
   finalize:
+    concurrency:
+      group: release-finalize-${{ inputs.version }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ inputs.version }}
@@ -50,6 +53,9 @@ jobs:
             echo "ERROR: version must be X.Y.Z format (create-github-release.yml only accepts this format): $VER" >&2
             exit 1
           }
+
+      - name: Verify npm latest matches the version
+        run: node scripts/assert-npm-latest.js "$RELEASE_VERSION"
 
       - name: Update RELEASES.md current marker
         run: |
@@ -98,4 +104,6 @@ jobs:
             --body "Automated RELEASES.md update for v${RELEASE_VERSION}." \
             --base main \
             --head "$BRANCH"
+          # 確認から変更までの窓を小さくするため、マージの直前にもう一度 latest を確認する(待機なし)
+          node scripts/assert-npm-latest.js "$RELEASE_VERSION" --once
           gh pr merge "$BRANCH" --admin --squash --delete-branch
