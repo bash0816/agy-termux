@@ -43,6 +43,38 @@ function fakeGet(plan) {
   return { get, calls }
 }
 
+// 偽のタイマー。登録されたコールバックは、テストが fn() を呼ぶまで発火しない(実時間に依存しない)。
+function fakeTimers() {
+  const set = []
+  const cleared = []
+  const setTimer = (fn, ms) => {
+    const t = { fn, ms }
+    set.push(t)
+    return t
+  }
+  const clearTimer = (t) => {
+    cleared.push(t)
+  }
+  return { setTimer, clearTimer, set, cleared }
+}
+
+// 指定のステータスの応答を cb に渡し、その後 steps(res) を実行する get を返す。
+function getWithRes(statusCode, steps) {
+  return (url, options, cb) => {
+    const req = new EventEmitter()
+    req.destroy = () => {}
+    setImmediate(() => {
+      const res = new EventEmitter()
+      res.statusCode = statusCode
+      res.setEncoding = () => {}
+      res.resume = () => {}
+      cb(res)
+      steps(res)
+    })
+    return req
+  }
+}
+
 // 与えた値を順に返す fetchLatest 代わり。尽きたら最後の値を返し続ける。
 function seqFetch(values) {
   let i = 0
@@ -198,9 +230,38 @@ test('7f: JSON 不正・latest 欠落・latest が文字列でない場合は nu
   }
 })
 
-test('7g: 応答が止まったら timeoutMs で null になり、要求は destroy される', async () => {
+test('7g: 応答が止まったらタイマー発火で null になり、要求は destroy される(実時間に依存しない)', async () => {
   const { get, calls } = fakeGet(() => ({ silent: true }))
-  const v = await fetchLatest({ get, timeoutMs: 20 })
-  assert.equal(v, null)
+  const timers = fakeTimers()
+  const p = fetchLatest({ get, timeoutMs: 20, setTimer: timers.setTimer, clearTimer: timers.clearTimer })
+  assert.equal(calls.length, 1)
+  assert.equal(timers.set.length, 1)
+  assert.equal(timers.set[0].ms, 20)
+  timers.set[0].fn()
+  assert.equal(await p, null)
   assert.equal(calls[0].req.destroyed, true)
+})
+
+test('7h: 応答が先に来たらタイマーは解除され、発火しない', async () => {
+  const { get } = fakeGet(() => ({ body: JSON.stringify({ latest: '1.4.10' }) }))
+  const timers = fakeTimers()
+  const v = await fetchLatest({ get, setTimer: timers.setTimer, clearTimer: timers.clearTimer })
+  assert.equal(v, '1.4.10')
+  assert.equal(timers.set.length, 1)
+  assert.deepEqual(timers.cleared, [timers.set[0]])
+})
+
+test('8a: HTTP 404 の本文読み捨て中に res が error を出しても null で resolve し、未処理 error で落ちない', async () => {
+  const get = getWithRes(404, (res) => res.emit('error', new Error('x')))
+  const timers = fakeTimers()
+  assert.equal(await fetchLatest({ get, setTimer: timers.setTimer, clearTimer: timers.clearTimer }), null)
+})
+
+test('8b: HTTP 200 の本文途中で res が error を出したら null', async () => {
+  const get = getWithRes(200, (res) => {
+    res.emit('data', '{"latest":"1.4')
+    res.emit('error', new Error('x'))
+  })
+  const timers = fakeTimers()
+  assert.equal(await fetchLatest({ get, setTimer: timers.setTimer, clearTimer: timers.clearTimer }), null)
 })

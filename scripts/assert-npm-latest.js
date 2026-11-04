@@ -31,7 +31,13 @@ function parseLatest(body) {
 
 // 最新版を 1 回取得する。失敗(HTTP 200 以外、JSON 不正、接続エラー、タイムアウト)は
 // 例外を投げず null を返す。呼び出し側は null を『不一致』として扱う。
-function fetchLatest({ get = https.get, timeoutMs = DEFAULT_TIMEOUT_MS, url = DIST_TAGS_URL } = {}) {
+function fetchLatest({
+  get = https.get,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  url = DIST_TAGS_URL,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
   return new Promise((resolve) => {
     let settled = false;
     let timer = null;
@@ -39,11 +45,11 @@ function fetchLatest({ get = https.get, timeoutMs = DEFAULT_TIMEOUT_MS, url = DI
     const finish = (value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimer(timer);
       resolve(value);
     };
     // タイマーを先に張る(get が同期的に失敗しても確実に解除されるように)。
-    timer = setTimeout(() => {
+    timer = setTimer(() => {
       finish(null);
       if (req) req.destroy();
     }, timeoutMs);
@@ -52,6 +58,8 @@ function fetchLatest({ get = https.get, timeoutMs = DEFAULT_TIMEOUT_MS, url = DI
         url,
         { headers: { 'Cache-Control': 'no-cache', Accept: 'application/json' } },
         (res) => {
+          // 応答ストリームの error は全経路(200 以外の読み捨て中も含む)で null 扱いにする。
+          res.on('error', () => finish(null));
           // 200 以外は不一致扱い。本文は読み捨てて接続を解放する。
           if (res.statusCode !== 200) {
             res.resume();
@@ -64,7 +72,6 @@ function fetchLatest({ get = https.get, timeoutMs = DEFAULT_TIMEOUT_MS, url = DI
             body += chunk;
           });
           res.on('end', () => finish(parseLatest(body)));
-          res.on('error', () => finish(null));
         }
       );
     } catch (e) {
