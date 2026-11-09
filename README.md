@@ -74,9 +74,9 @@ Both steps are skipped on subsequent runs if the version has not changed.
 
 バージョンが変わっていない場合、2回目以降は両ステップをスキップします。
 
-**Tested with agy 1.4.12 on Android 12+ (SIGSYS shim + version pin).**
+**Tested with agy 1.5.1 on Android 12+ (SIGSYS shim + version pin).**
 
-**agy 1.4.12・Android 12+ で動作確認済み（SIGSYS shim + version pin）。**
+**agy 1.5.1・Android 12+ で動作確認済み（SIGSYS shim + version pin）。**
 
 ## Update / 更新
 
