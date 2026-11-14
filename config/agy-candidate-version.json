@@ -1,33 +1,33 @@
 {
-  "tag_name": "1.5.5",
-  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.5.5/agy_cli_linux_arm64.tar.gz",
-  "sha256_tar": "f6faff7b47ad2d9a60ebca9d774239a1cd23e53a8ca6d812c1e9583909dca655",
-  "sha256_binary": "ab4bbafaf0dc7763b78f0a5444f1ce86ae279cb0f0cb4c6beaef53e58d243cde",
+  "tag_name": "1.5.8",
+  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.5.8/agy_cli_linux_arm64.tar.gz",
+  "sha256_tar": "0ca407357661aa244fbc3b0e79a1d1d2623b2ca1515d2e2f77a801c3676bd562",
+  "sha256_binary": "d724309f1438896e6db4dfd7243bc0361624d4cdcd7913c2e47e25be214d3b7b",
   "va39_patcher_rev": 2,
   "va39_patch_counts": {
     "ubfx": 0,
-    "lsl": 6,
+    "lsl": 7,
     "mask": 0,
-    "mmap": 7,
+    "mmap": 8,
     "word": 13
   },
   "va39_patch_breakdown": [
     {
       "kind": "main",
       "offset": 0,
-      "size": 236540280,
+      "size": 264393392,
       "counts": {
         "ubfx": 0,
-        "lsl": 6,
+        "lsl": 7,
         "mask": 0,
-        "mmap": 6,
+        "mmap": 7,
         "word": 7
       }
     },
     {
       "kind": "embedded",
-      "offset": 213867675,
-      "size": 6280536,
+      "offset": 217525305,
+      "size": 6249512,
       "counts": {
         "ubfx": 0,
         "lsl": 0,
@@ -38,7 +38,7 @@
     },
     {
       "kind": "embedded",
-      "offset": 220148211,
+      "offset": 223774817,
       "size": 15860003,
       "counts": {
         "ubfx": 0,
@@ -49,21 +49,25 @@
       }
     }
   ],
-  "va39_patched_sha256": "e7a0b2e486fab2d419fe5be91ae071cd3daf312cf1d7f369958d3431a2cd1b82",
-  "va39_patched_size": 236540280,
+  "va39_patched_sha256": "f82ed61d71ae793ae14ba27ef5f571bf8d2fd153c3c768cfb96bd2950a91493f",
+  "va39_patched_size": 264393392,
   "va39_baseline_comparison": {
     "status": "changed",
     "differences": [
-      "breakdown[0].size: 229855608 -> 236540280",
-      "breakdown[1].offset: 207142582 -> 213867675",
-      "breakdown[1].size: 6292376 -> 6280536",
-      "breakdown[2].offset: 213434958 -> 220148211"
+      "counts.lsl: 6 -> 7",
+      "counts.mmap: 7 -> 8",
+      "breakdown[0].size: 236540280 -> 264393392",
+      "breakdown[0].counts.lsl: 6 -> 7",
+      "breakdown[0].counts.mmap: 6 -> 7",
+      "breakdown[1].offset: 213867675 -> 217525305",
+      "breakdown[1].size: 6280536 -> 6249512",
+      "breakdown[2].offset: 220148211 -> 223774817"
     ]
   },
-  "release_id": 440625768,
-  "asset_id": 732160129,
-  "asset_updated_at": "2026-11-10T16:38:38Z",
+  "release_id": 443833739,
+  "asset_id": 742336512,
+  "asset_updated_at": "2026-11-13T05:00:36Z",
   "source_repo": "google-antigravity/antigravity-cli",
-  "detected_date": "2026-11-11",
+  "detected_date": "2026-11-14",
   "status": "pending_device_verification"
 }
