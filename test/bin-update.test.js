@@ -309,8 +309,9 @@ test('W5 b) 標準外のレイアウトでは prefix を推定できず、更新
 test('W6 --version は副作用ゼロ', () => {
   const sb = setup('w6', '1.2.16', { consent: false });
   const r = runAgy(sb, ['--version'], { MOCK_HTTPS_MODE: 'tripwire' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  // 未取得・同意なし・非TTY: 表示文字列は出さず、終了コード 1
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
   assert.deepEqual(fs.readdirSync(sb.home), []);
   assert.deepEqual(readLog(sb.mockLog), []);
   assert.deepEqual(readLog(sb.npmLog), []);
@@ -445,13 +446,13 @@ function assertOneErrorLine(stderr, expected) {
 // --version の別名(4 つ)
 const VERSION_ALIASES = ['--version', '-v', '-V', 'version'];
 
-test('--version 注記: キャッシュが無ければ 1行目は不変で、標準エラーに『バイナリは未取得です』を1行出し、終了コード 0', () => {
+test('--version: 未取得・同意なし非TTYは stdout 空で終了コード 1', () => {
   VERSION_ALIASES.forEach((alias, i) => {
     const sb = setup(`u5a-${i}`, '1.2.16', { consent: false });
     const r = runAgy(sb, [alias], { MOCK_HTTPS_MODE: 'tripwire' });
-    assert.equal(r.status, 0, `${alias}: ${r.stderr}`);
-    assert.equal(r.stdout, 'agy-termux 1.2.16\n', alias);
-    assertOneErrorLine(r.stderr, '[agy] バイナリは未取得です。agy を実行すると、必要に応じて取得します');
+    assert.equal(r.status, 1, `${alias}: ${r.stderr}`);
+    assert.equal(r.stdout, '', alias);
+    assert.match(r.stderr, /同意/, alias);
     // 通信は 0 回、隔離 HOME には何も作らない
     assert.deepEqual(readLog(sb.mockLog), [], alias);
     assert.deepEqual(readLog(sb.npmLog), [], alias);
@@ -459,32 +460,118 @@ test('--version 注記: キャッシュが無ければ 1行目は不変で、標
   });
 });
 
-test('--version 注記: 有効なキャッシュがあれば注記を出さない', () => {
+test('--version: 取得済みは同意なしで本体を実行し本体の出力を返す', () => {
   const sb = setup('u5b', '1.2.16', { consent: false });
-  prepareVa39Cache(sb, '1.2.16');
+  const file = prepareVa39Cache(sb, '1.2.16');
   const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  // 有効キャッシュなので本体(フェイクローダ)を実行する。偽キャッシュには AGYVER が無いため version=unknown
+  assert.equal(r.stdout, `LOADER_RAN version=unknown path=${file}\n`);
   assert.deepEqual(readLog(sb.mockLog), []);
 });
 
-test('--version 注記: 壊れたキャッシュは『壊れているか期待と異なります』', () => {
+test('--version: 壊れたキャッシュは同意なし非TTYで stdout 空・終了コード 1', () => {
   const sb = setup('u5c', '1.2.16', { consent: false });
   // 期待サイズ(10MiB 超)より小さい偽ファイルを置く
   prepareVa39Cache(sb, '1.2.16', 1024);
   const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
-  assertOneErrorLine(r.stderr, 'バイナリが壊れているか期待と異なります');
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /同意/);
   assert.deepEqual(readLog(sb.mockLog), []);
 });
 
-test('--version 注記: FORCE_LATEST=1 では『判定できません』', () => {
+test('--version: FORCE_LATEST=1 は同意が先に求められる', () => {
   const sb = setup('u5d', '1.2.16', { consent: false });
   const r = runAgy(sb, ['--version'], { AGY_TERMUX_FORCE_LATEST: '1', MOCK_HTTPS_MODE: 'tripwire' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
-  assertOneErrorLine(r.stderr, 'バイナリの状態を判定できません');
+  // 同意ゲートを先に通すため、同意なし・非TTYでは FORCE_LATEST の案内に進まず終了する
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /同意/);
+  assert.doesNotMatch(r.stderr, /AGY_TERMUX_FORCE_LATEST/);
   assert.deepEqual(readLog(sb.mockLog), []);
+});
+
+// 本体の代わりに動かす偽ローダを、テスト内で差し替える(wiring.js の makeFakeLoader は argv を出さないため)。
+// agy は <prefix>/glibc/lib/ld-linux-aarch64.so.1 を --library-path <lib> <本体> <引数...> で起動するので、
+// 先頭 3 つ(--library-path, <lib>, <本体>)の後ろが本体への引数になる
+function installBodyLoader(sb, body) {
+  const loader = path.join(sb.prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
+  fs.writeFileSync(loader, '#!' + process.execPath + '\n' + body);
+  fs.chmodSync(loader, 0o755);
+  return loader;
+}
+
+// 本体が受け取った引数を stdout に 1 行で出す偽本体
+const ECHO_ARGV_BODY = `
+const i = process.argv.indexOf('--library-path');
+process.stdout.write('ARGV ' + JSON.stringify(process.argv.slice(i + 3)) + '\\n');
+`;
+
+test('--version: 4 つの別名はすべて --version に書き換えて本体へ渡す', () => {
+  VERSION_ALIASES.forEach((alias, i) => {
+    const sb = setup(`u5f-alias-${i}`, '1.2.16', { consent: false });
+    prepareVa39Cache(sb, '1.2.16');
+    installBodyLoader(sb, ECHO_ARGV_BODY);
+    const r = runAgy(sb, [alias], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+    assert.equal(r.status, 0, `${alias}: ${r.stderr}`);
+    assert.equal(r.stdout, 'ARGV ' + JSON.stringify(['--version']) + '\n', alias);
+  });
+});
+
+test('--version: 先頭以外の --version は書き換えず、先頭の --version の後ろ引数は本体に残す', () => {
+  // agy foo --version / agy update --version: 先頭が版表示の別名ではないので、本体を --version 単独で呼ばない
+  ['foo', 'update'].forEach((first) => {
+    const sb = setup(`u5g-neg-${first}`, '1.2.16', { consent: false });
+    prepareVa39Cache(sb, '1.2.16');
+    installBodyLoader(sb, ECHO_ARGV_BODY);
+    const r = runAgy(sb, [first, '--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+    assert.doesNotMatch(r.stdout, /ARGV \["--version"\]/, `${first}: ${r.stdout}${r.stderr}`);
+  });
+
+  // agy --version --extra: 書き換えるのは先頭だけなので、--extra は本体の argv に残る
+  const sb = setup('u5g-extra', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  installBodyLoader(sb, ECHO_ARGV_BODY);
+  const r = runAgy(sb, ['--version', '--extra'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'ARGV ' + JSON.stringify(['--version', '--extra']) + '\n');
+});
+
+test('--version: 本体が終了コード 7 で終わると agy も 7 で終わり、stdout は本体の出力だけ', () => {
+  const sb = setup('u5h-exit7', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  installBodyLoader(sb, "process.stdout.write('BODY_OUT\\n');\nprocess.exitCode = 7;\n");
+  const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 7, r.stderr);
+  assert.equal(r.stdout, 'BODY_OUT\n');
+});
+
+test('--version: 本体が SIGTERM で終わる・起動に失敗する場合は終了コードが非 0', (t) => {
+  // 本体がシグナルで終わる場合: agy は process.exit(r.signal ? 1 : ...) で終わる
+  const sbSig = setup('u5i-signal', '1.2.16', { consent: false });
+  prepareVa39Cache(sbSig, '1.2.16');
+  installBodyLoader(sbSig, "process.kill(process.pid, 'SIGTERM');\n");
+  const rSig = runAgy(sbSig, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  t.diagnostic(`measured signal: status=${rSig.status} stdout=${JSON.stringify(rSig.stdout)} stderr=${JSON.stringify(rSig.stderr)}`);
+  assert.notEqual(rSig.status, 0, rSig.stderr);
+
+  // 起動に失敗する場合: 実行権を外した偽ローダを起動すると spawn が失敗する
+  const sbSpawn = setup('u5i-spawn', '1.2.16', { consent: false });
+  prepareVa39Cache(sbSpawn, '1.2.16');
+  const loader = installBodyLoader(sbSpawn, ECHO_ARGV_BODY);
+  fs.chmodSync(loader, 0o644);
+  const rSpawn = runAgy(sbSpawn, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  t.diagnostic(`measured spawn-fail: status=${rSpawn.status} stdout=${JSON.stringify(rSpawn.stdout)} stderr=${JSON.stringify(rSpawn.stderr)}`);
+  assert.notEqual(rSpawn.status, 0, rSpawn.stderr);
+});
+
+test('--version: 取得済みキャッシュでも同意がなければ通信・npm を行わない', () => {
+  const sb = setup('u5j-noconsent', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), []);
+  assert.deepEqual(readLog(sb.npmLog), []);
 });

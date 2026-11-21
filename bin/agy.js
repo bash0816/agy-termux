@@ -33,7 +33,7 @@ function detectOwnPrefix() {
 }
 
 // バイナリ同期(lib/binary-cache.js の syncBinary)に渡す依存を組み立てる
-// require は呼び出し時に行い、--version の経路では読み込まれないようにする
+// require は呼び出し時に行い、起動時の読み込みを避ける
 async function buildSyncDeps() {
   const bc = require('../lib/binary-cache');
   const { fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
@@ -145,24 +145,9 @@ function writeResultFd(result) {
 
 async function main() {
   const args = process.argv.slice(2);
-
-  // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn・
-  // ファイルシステムへの書き込みは一切行わない。キャッシュの状態を読むだけ（legacy cleanupより前に早期return する）。
-  if (['--version', '-v', '-V', 'version'].includes(args[0])) {
-    const pkg = require('../package.json');
-    console.log(`agy-termux ${pkg.version}`);
-    // バイナリが未取得・破損・判定不能のときだけ、標準エラーに注記を1行足す(読み取りのみ・通信なし)。失敗しても1行目と終了コードは変えない
-    try {
-      const { inspectPinned } = require('../lib/binary-cache');
-      const { readPinnedMeta } = require('../lib/downloader');
-      const { cacheStateLine } = require('../lib/render-final');
-      const ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
-      if (ins.state !== 'ok') console.error(cacheStateLine(ins.state, ins.tag));
-    } catch {
-      // 注記を出せなくても --version 自体は成功させる
-    }
-    process.exit(0);
-  }
+  // --version / -v / -V / version は本体の --version として扱い、版は本体の出力を返す
+  const versionMode = ['--version', '-v', '-V', 'version'].includes(args[0]);
+  if (versionMode) args[0] = '--version';
 
   // --self-check[=<nonce>][ --deep]: 同意・ネットワーク・書き込みより前に返す自己診断
   if (args[0] === '--self-check' || (typeof args[0] === 'string' && args[0].startsWith('--self-check='))) {
@@ -282,9 +267,18 @@ async function main() {
     console.error('[agy] glibc loader が見つかりません。');
     console.error('  pkg install glibc-repo && pkg install glibc'); process.exit(1);
   }
-  const g = await consent.gateDownload();
-  if (g === 'declined') { console.error(MSG_DOWNLOAD_DECLINED); process.exit(0); }
-  if (g === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
+  // --version 時、固定版のキャッシュが有効なら取得しないので同意ゲートを通さない(通信・同意・取得判定はしない)
+  let pinnedOk = false;
+  if (versionMode && process.env.AGY_TERMUX_FORCE_LATEST !== '1' && process.env.AGY_TERMUX_REFRESH !== '1') {
+    const { inspectPinned } = require('../lib/binary-cache');
+    const { readPinnedMeta } = require('../lib/downloader');
+    pinnedOk = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR }).state === 'ok';
+  }
+  if (!pinnedOk) {
+    const g = await consent.gateDownload();
+    if (g === 'declined') { console.error(MSG_DOWNLOAD_DECLINED); process.exit(versionMode ? 1 : 0); }
+    if (g === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
+  }
 
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
   const { describeFailure } = require('../lib/errors');
@@ -331,7 +325,7 @@ async function main() {
     if (!gate.ok) {
       if (gate.result === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
       console.error(gate.stage === 'download' ? MSG_DOWNLOAD_DECLINED : MSG_COMPAT_DECLINED);
-      process.exit(0);
+      process.exit(versionMode ? 1 : 0);
     }
     // 取得の理由を示す。自己回復('self_heal')は直前に専用の行を出しているので、ここでは出さない
     const preface = {
