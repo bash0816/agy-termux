@@ -1,3 +1,15 @@
+## Unreleased
+
+- `agy --version`（`-v`、`-V`、`version` も同じ）は同梱の agy 本体を実行し、その出力をそのまま表示します。本体が未取得または壊れている場合は、同意を求めてから取得して実行します。同意がない場合、非対話実行の場合、取得に失敗した場合は、何も出力せず終了コード 1 で終了します。
+- `agy update` は、バイナリを取得できたかどうかを含む更新の結果を終了コードで返します。バイナリが未取得のまま終わった場合は終了コード 1 で終了し、その旨を表示します。
+- 修正版への最初の `agy update` は古いコードで実行されるため、上記の保証が効かない場合があります。その後 `agy --version` で確認してください。
+
+- `agy --version` (also `-v`, `-V`, `version`) runs the bundled agy binary and prints its output as-is. If the binary is missing or damaged, it asks for consent, fetches it, then runs it. Without consent, in non-interactive use, or if the fetch fails, it prints nothing and exits with status 1.
+- `agy update` returns its update result, including whether the binary was fetched, as its exit status. If the binary is still not fetched, it exits with status 1 and prints a message saying so.
+- The first `agy update` to the fixed version runs the old code, so the guarantees above may not apply to that run. Check with `agy --version` afterward.
+
+---
+
 ## 1.5.5 — 2026-11-14 ✅ Current \/ 現行版
 
 Google Antigravity CLI (agy) v1.5.5 対応。Termux 実機検証済み。
