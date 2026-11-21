@@ -254,10 +254,13 @@ async function main() {
       args: ['update', '--sync-binary-only', '--result-fd=3'],
     });
     // error または signal で終わった子の出力は、正しい JSON でも採用しない
-    const result = c.error || c.signal ? null : parseResult(c.text);
+    const parsed = c.error || c.signal ? null : parseResult(c.text);
+    // current / synced は、結果の tag が監査済み版 (r.aud) と一致するものだけ採用する
+    const tagMismatch = parsed !== null && (parsed.status === 'current' || parsed.status === 'synced') && parsed.tag !== r.aud;
+    const result = tagMismatch ? null : parsed;
     const rf = result
       ? renderFinal({ installed: true, from: r.from, to: r.to, result })
-      : renderUnknownResult({ from: r.from, to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
+      : renderUnknownResult({ from: r.from, to: r.to, cause: tagMismatch ? 'tag mismatch' : c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
     printLines(rf.lines);
     process.exit(rf.code);
   }

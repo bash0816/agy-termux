@@ -568,6 +568,59 @@ test('E9 引き継ぎ先の子が正しい結果を書いた後に exit 1 で終
   assert.doesNotMatch(r.stderr, /確認できませんでした/);
 });
 
+// installed 経路の fd 3 で、引き継ぎ先の子が書いた結果 childResult(オブジェクト)を採用するか確かめる共通手順
+function runInstalledWithChildResult(name, childResult) {
+  const OLD_URL = 'https://mock.test/agy-1.2.14.tar.gz';
+  const NEW_URL = 'https://mock.test/agy-1.3.0.tar.gz';
+  const sb = setup(name, { pkgVersion: '1.2.14', pinVersion: '1.2.14', url: OLD_URL });
+
+  const newPkg = makeNewPkg(sb, 'new-pkg', '1.3.0', NEW_URL);
+  setAuditedRoute(sb.routes, '1.3.0');
+  // 新版の子は childResult を 1 行の JSON で fd 3 に書いてから exit 0 で終わる
+  fs.writeFileSync(
+    path.join(newPkg, 'bin', 'agy.js'),
+    [
+      "const fs = require('fs');",
+      `fs.writeSync(3, JSON.stringify(${JSON.stringify(childResult)}) + '\\n');`,
+      'process.exit(0);',
+      '',
+    ].join('\n'),
+  );
+
+  // (a) 旧版で起動する
+  const first = launch(sb);
+  assert.equal(first.status, 0, first.stderr);
+
+  // (b) 旧版から新版へ更新する
+  return update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
+}
+
+test('F1 installed 経路: 結果の tag が空の current は採用せず、完了を確認できない行にする', () => {
+  const r = runInstalledWithChildResult('f1', { status: 'current', tag: '', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(tag mismatch\)/);
+  assert.doesNotMatch(r.stdout, /^\[agy\] 1\.2\.14 → 1\.3\.0 に更新しました$/m);
+});
+
+test('F2 installed 経路: 結果の tag が期待版 (1.3.0) と異なる synced は採用せず、完了を確認できない行にする', () => {
+  const r = runInstalledWithChildResult('f2', { status: 'synced', tag: '9.9.9', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(tag mismatch\)/);
+  assert.doesNotMatch(r.stdout, /^\[agy\] 1\.2\.14 → 1\.3\.0 に更新しました$/m);
+});
+
+test('F3 installed 経路: tag が空の skipped は従来どおり exit 1 で、tag mismatch 扱いにしない', () => {
+  const r = runInstalledWithChildResult('f3', { status: 'skipped', reason: 'consent_declined', tag: '', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.doesNotMatch(r.stderr, /tag mismatch/);
+});
+
+test('F4 installed 経路: tag が空の error は従来どおり exit 1 で、tag mismatch 扱いにしない', () => {
+  const r = runInstalledWithChildResult('f4', { status: 'error', tag: '', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.doesNotMatch(r.stderr, /tag mismatch/);
+});
+
 test('E6 未取得の update は loader が無ければ取得しない: glibc の案内を出して exit 1、取得もしない', () => {
   const sb = setup('e6', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
