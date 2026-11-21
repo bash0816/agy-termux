@@ -416,7 +416,7 @@ test('E2 更新後の版が想定と異なる: 取得せずに失敗する', () 
   assert.equal(countGets(sb, NEW_URL), 0);
 });
 
-test('E3 更新先に binary-cache.js が無い: 警告を出して成功し、取得は launch に任せる', () => {
+test('E3 更新先に binary-cache.js が無い: 警告を出して失敗(終了コード1)し、取得はしない', () => {
   const OLD_URL = 'https://mock.test/agy-1.2.14.tar.gz';
   const NEW_URL = 'https://mock.test/agy-1.3.0.tar.gz';
   const sb = setup('e3', { pkgVersion: '1.2.14', pinVersion: '1.2.14', url: OLD_URL });
@@ -435,9 +435,9 @@ test('E3 更新先に binary-cache.js が無い: 警告を出して成功し、�
   setRoute(sb.routes, { kind: 'file', file: newBin.tarPath }, NEW_URL);
   setAuditedRoute(sb.routes, '1.3.0');
 
-  // (a) update は成功するが、バイナリは取得せず、標準出力と標準エラーに案内を出す
+  // (a) 更新先に同期機能が無いので、バイナリは取得せず、標準出力と標準エラーに案内を出して exit 1 にする
   const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, 1, r.stderr);
   assert.match(r.stdout, /\[agy\] パッケージを 1\.2\.14 → 1\.3\.0 に更新しました/);
   assert.match(r.stderr, /バイナリ: このバージョンには同期機能が無いため同期していません/);
   assert.match(r.stderr, /AGY_TERMUX_REFRESH=1 agy を実行してください/);
@@ -516,6 +516,56 @@ test('E7 引き継ぎ先の子が正しい結果を書いた後に signal で終
   assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(signal SIGKILL\)/);
   assert.match(r.stdout, /パッケージを 1\.2\.14 → 1\.3\.0 に更新しました/);
   assert.doesNotMatch(r.stdout, /^\[agy\] 1\.2\.14 → 1\.3\.0 に更新しました$/m);
+});
+
+test('E8 引き継ぎ先の子が結果を書かずに exit 0 で終了: 完了を確認できないので exit 1 にする', () => {
+  const OLD_URL = 'https://mock.test/agy-1.2.14.tar.gz';
+  const NEW_URL = 'https://mock.test/agy-1.3.0.tar.gz';
+  const sb = setup('e8', { pkgVersion: '1.2.14', pinVersion: '1.2.14', url: OLD_URL });
+
+  const newPkg = makeNewPkg(sb, 'new-pkg', '1.3.0', NEW_URL);
+  setAuditedRoute(sb.routes, '1.3.0');
+  // 新版の子は fd 3 に何も書かずに exit 0 で終わる
+  fs.writeFileSync(path.join(newPkg, 'bin', 'agy.js'), 'process.exit(0);\n');
+
+  // (a) 旧版で起動する
+  const first = launch(sb);
+  assert.equal(first.status, 0, first.stderr);
+
+  // (b) update は結果が無いので取得の完了を確認できず、終了コード 0 でも失敗扱いにする
+  const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(exit 0\)/);
+  assert.match(r.stdout, /パッケージを 1\.2\.14 → 1\.3\.0 に更新しました/);
+});
+
+test('E9 引き継ぎ先の子が正しい結果を書いた後に exit 1 で終了: 結果が有効なら採用し、終了コードは子の値で決めない', () => {
+  const OLD_URL = 'https://mock.test/agy-1.2.14.tar.gz';
+  const NEW_URL = 'https://mock.test/agy-1.3.0.tar.gz';
+  const sb = setup('e9', { pkgVersion: '1.2.14', pinVersion: '1.2.14', url: OLD_URL });
+
+  const newPkg = makeNewPkg(sb, 'new-pkg', '1.3.0', NEW_URL);
+  setAuditedRoute(sb.routes, '1.3.0');
+  // 新版の子は正しい 1 行の結果を fd 3 に書いてから、exit 1 で終わる
+  fs.writeFileSync(
+    path.join(newPkg, 'bin', 'agy.js'),
+    [
+      "const fs = require('fs');",
+      "fs.writeSync(3, JSON.stringify({ status: 'synced', tag: '1.3.0', deleted: { count: 0, bytes: 0 } }) + '\\n');",
+      'process.exit(1);',
+      '',
+    ].join('\n'),
+  );
+
+  // (a) 旧版で起動する
+  const first = launch(sb);
+  assert.equal(first.status, 0, first.stderr);
+
+  // (b) 結果が有効なので、その内容で終わる。子の終了コードは判定に使わない
+  const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /1\.2\.14 → 1\.3\.0 に更新しました/);
+  assert.doesNotMatch(r.stderr, /確認できませんでした/);
 });
 
 test('E6 未取得の update は loader が無ければ取得しない: glibc の案内を出して exit 1、取得もしない', () => {

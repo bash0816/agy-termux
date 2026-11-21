@@ -260,7 +260,7 @@ async function main() {
     if (!fs.existsSync(path.join(r.pkgDir, 'lib', 'binary-cache.js'))) {
       console.log('[agy] パッケージを ' + r.from + ' → ' + r.aud + ' に更新しました');
       console.error('[agy] バイナリ: このバージョンには同期機能が無いため同期していません。版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください');
-      process.exit(0);
+      process.exit(1);
     }
     // 新しいコードに同期を任せる。結果は fd 3 で受け取る
     const c = await runSyncChild({
