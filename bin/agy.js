@@ -9,6 +9,10 @@ const CONSENT_FILE = path.join(INSTALL_DIR, '.consent');
 
 const { createConsent } = require('../lib/consent');
 const consent = createConsent({ file: CONSENT_FILE, fs, stdin: process.stdin, stderr: process.stderr });
+// 同意の拒否・入力なしのときに出す文言(取得を始める前に止まった場合で共通に使う)
+const MSG_DOWNLOAD_DECLINED = '[agy] 同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください';
+const MSG_COMPAT_DECLINED = '[agy] 互換調整に同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください';
+const MSG_NO_INPUT = '[agy] 同意の入力がありません。端末から agy を実行してください';
 // bin/agy.js は "<prefix>/lib/node_modules/@bash0816/agy-termux/bin/agy.js" に配置される
 // (npmのグローバルインストールの標準レイアウト)。ここから4階層上がprefixになる。
 // 純粋な文字列パス計算のみ行うため、テストではfsアクセスなしで検証できる。
@@ -40,16 +44,16 @@ async function buildSyncDeps() {
   const killPid = (pid) => {
     try { process.kill(pid, 0); return 'alive'; } catch (e) { return e && e.code === 'ESRCH' ? 'esrch' : 'unknown'; }
   };
-  // 同意は呼び出し前の preflight で取得済みのため、ここでは常に許可扱いにする
+  // 同意は保存済みの同意ファイルで判定する。未保存の互換調整は、取得の直前に gateCompat で確認する(拒否・入力なしは不許可)
   const onPhase = (label) => process.stderr.write('[agy] ' + (label === '取得します...' ? meta.tagName + ' のバイナリを取得します(初回のみ・数分かかることがあります。次回からは取得しません)' : label) + '\n');
   return {
     meta,
     dir: INSTALL_DIR,
     isPatch,
-    hasConsent: () => true,
+    hasConsent: (key) => consent.hasConsent(key),
     fsDeps: fs,
     loaderExists: () => fs.existsSync(path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1')),
-    confirmCompat: async () => true,
+    confirmCompat: async () => (await consent.gateCompat()) === 'granted',
     onPhase,
     progress: true,
     install: async (file) => {
@@ -84,21 +88,11 @@ async function preflight() {
   const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
   const loader = path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
   if (!fs.existsSync(loader)) return { ok: false, status: 'error', reason: 'loader' };
-  const g = await consent.gateDownload();
-  if (g !== 'granted') {
-    return g === 'declined'
-      ? { ok: false, status: 'skipped', reason: 'consent_declined' }
-      : { ok: false, status: 'error', reason: 'no_input' };
-  }
-  if (require('../lib/binary-cache').needsPatch()) {
-    const c = await consent.gateCompat();
-    if (c !== 'granted') {
-      return c === 'declined'
-        ? { ok: false, status: 'skipped', reason: 'compat_declined' }
-        : { ok: false, status: 'error', reason: 'no_input' };
-    }
-  }
-  return { ok: true };
+  // 取得に必要な同意(download・互換調整)を一括で確認する
+  const gate = await consent.ensureFetchConsent({ isPatch: require('../lib/binary-cache').needsPatch() });
+  if (gate.ok) return { ok: true };
+  if (gate.result === 'no_input') return { ok: false, status: 'error', reason: 'no_input' };
+  return { ok: false, status: 'skipped', reason: gate.stage === 'download' ? 'consent_declined' : 'compat_declined' };
 }
 
 // 確認を通してからバイナリを同期する。確認で止まった場合は結果オブジェクトで返す
@@ -277,8 +271,8 @@ async function main() {
     console.error('  pkg install glibc-repo && pkg install glibc'); process.exit(1);
   }
   const g = await consent.gateDownload();
-  if (g === 'declined') { console.error('[agy] 同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
-  if (g === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
+  if (g === 'declined') { console.error(MSG_DOWNLOAD_DECLINED); process.exit(0); }
+  if (g === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
 
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
   const { describeFailure } = require('../lib/errors');
@@ -317,14 +311,16 @@ async function main() {
   const cacheState = bc.inspectFile({ fs, file: tmp, expectedSize });
   const cacheHit = !forceRefresh && cacheState === 'ok';
 
-  if (!cacheHit && isPatch) {
-    const c = await consent.gateCompat();
-    if (c === 'declined') { console.error('[agy] 互換調整に同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
-    if (c === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
-  }
-
   // バイナリを取得して配置する。取得の前に予告を出す(取得の進捗はダウンロード側が出す)
   const install = async (reason) => {
+    // 取得の直前に同意を確認する(download・互換調整)。拒否・入力なしのときは取得しない。
+    // 自己回復('self_heal')もここを通るので、互換調整が未同意なら取得しない
+    const gate = await consent.ensureFetchConsent({ isPatch });
+    if (!gate.ok) {
+      if (gate.result === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
+      console.error(gate.stage === 'download' ? MSG_DOWNLOAD_DECLINED : MSG_COMPAT_DECLINED);
+      process.exit(0);
+    }
     // 取得の理由を示す。自己回復('self_heal')は直前に専用の行を出しているので、ここでは出さない
     const preface = {
       refresh: `AGY_TERMUX_REFRESH=1 のため、${tagName} のバイナリを取得し直します`,
@@ -388,4 +384,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { computePrefixFromRealFilePath, detectOwnPrefix, preflight, syncWithGates };
+module.exports = { computePrefixFromRealFilePath, detectOwnPrefix, buildSyncDeps, preflight, syncWithGates };
