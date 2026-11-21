@@ -181,7 +181,7 @@ async function main() {
       printLines(rf.lines);
       process.exit(rf.code);
     }
-    const { runUpdate, createDeps } = require('../lib/audited-update');
+    const { runUpdate, createDeps, normalizeTag } = require('../lib/audited-update');
     const pkg = require('../package.json');
     const r = await runUpdate(createDeps({
       spawnSync,
@@ -256,7 +256,7 @@ async function main() {
     // error または signal で終わった子の出力は、正しい JSON でも採用しない
     const parsed = c.error || c.signal ? null : parseResult(c.text);
     // current / synced は、結果の tag が監査済み版 (r.aud) と一致するものだけ採用する
-    const tagMismatch = parsed !== null && (parsed.status === 'current' || parsed.status === 'synced') && parsed.tag !== r.aud;
+    const tagMismatch = parsed !== null && (parsed.status === 'current' || parsed.status === 'synced') && (normalizeTag(parsed.tag) === null || normalizeTag(parsed.tag) !== normalizeTag(r.aud));
     const result = tagMismatch ? null : parsed;
     const rf = result
       ? renderFinal({ installed: true, from: r.from, to: r.to, result })

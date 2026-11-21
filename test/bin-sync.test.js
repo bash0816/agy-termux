@@ -621,6 +621,27 @@ test('F4 installed 経路: tag が空の error は従来どおり exit 1 で、t
   assert.doesNotMatch(r.stderr, /tag mismatch/);
 });
 
+test('F5 installed 経路: 結果の tag が v 付き (v1.3.0) で期待版 (1.3.0) と一致する current は、正規化して一致とみなし成功にする', () => {
+  const r = runInstalledWithChildResult('f5', { status: 'current', tag: 'v1.3.0', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /1\.2\.14 → 1\.3\.0 に更新しました/);
+  assert.doesNotMatch(r.stderr, /確認できませんでした/);
+});
+
+test('F6 installed 経路: 結果の tag が正規化後も期待版 (1.3.0) と一致しない (v9.9.9) current は採用せず、完了を確認できない行にする', () => {
+  const r = runInstalledWithChildResult('f6', { status: 'current', tag: 'v9.9.9', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(tag mismatch\)/);
+  assert.doesNotMatch(r.stdout, /^\[agy\] 1\.2\.14 → 1\.3\.0 に更新しました$/m);
+});
+
+test('F7 installed 経路: 結果の tag が空白だけの形式不正な current は採用せず、完了を確認できない行にする', () => {
+  const r = runInstalledWithChildResult('f7', { status: 'current', tag: ' ', deleted: { count: 0, bytes: 0 } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(tag mismatch\)/);
+  assert.doesNotMatch(r.stdout, /^\[agy\] 1\.2\.14 → 1\.3\.0 に更新しました$/m);
+});
+
 test('E6 未取得の update は loader が無ければ取得しない: glibc の案内を出して exit 1、取得もしない', () => {
   const sb = setup('e6', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');
