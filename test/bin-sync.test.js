@@ -490,6 +490,36 @@ test('E5 update は同意を質問しない: 同意なし(非 TTY)でも質問�
   assert.equal(countGets(sb), 0);
 });
 
+test('E7 引き継ぎ先の子が正しい結果を書いた後に signal で終了: 結果は採用せず、完了を確認できない行にする', () => {
+  const OLD_URL = 'https://mock.test/agy-1.2.14.tar.gz';
+  const NEW_URL = 'https://mock.test/agy-1.3.0.tar.gz';
+  const sb = setup('e6', { pkgVersion: '1.2.14', pinVersion: '1.2.14', url: OLD_URL });
+
+  const newPkg = makeNewPkg(sb, 'new-pkg', '1.3.0', NEW_URL);
+  setAuditedRoute(sb.routes, '1.3.0');
+  // 新版の子は正しい 1 行の結果を fd 3 に書いてから、自分自身を SIGKILL で止める
+  fs.writeFileSync(
+    path.join(newPkg, 'bin', 'agy.js'),
+    [
+      "const fs = require('fs');",
+      "fs.writeSync(3, JSON.stringify({ status: 'synced', tag: '1.3.0', deleted: { count: 0, bytes: 0 } }) + '\\n');",
+      "process.kill(process.pid, 'SIGKILL');",
+      '',
+    ].join('\n'),
+  );
+
+  // (a) 旧版で起動する
+  const first = launch(sb);
+  assert.equal(first.status, 0, first.stderr);
+
+  // (b) update は非 0 で終わる。正しい JSON は採用されず、signal の原因として表示される
+  const r = update(sb, { MOCK_NPM_VIEW: '1.3.0', FAKE_NPM_NEW_PKG: newPkg });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /バイナリ: 取得が完了したか確認できませんでした\(signal SIGKILL\)/);
+  assert.match(r.stdout, /パッケージを 1\.2\.14 → 1\.3\.0 に更新しました/);
+  assert.doesNotMatch(r.stdout, /^\[agy\] 1\.2\.14 → 1\.3\.0 に更新しました$/m);
+});
+
 test('E6 update は loader を確認しない: loader 無しでも失敗せず、取得も手動削除の案内も出さない', () => {
   const sb = setup('e6', { pkgVersion: '1.3.0', pinVersion: '1.3.0' });
   setAuditedRoute(sb.routes, '1.3.0');

@@ -257,7 +257,8 @@ async function main() {
       script: path.join(r.pkgDir, 'bin', 'agy.js'),
       args: ['update', '--sync-binary-only', '--result-fd=3'],
     });
-    const result = parseResult(c.text);
+    // error または signal で終わった子の出力は、正しい JSON でも採用しない
+    const result = c.error || c.signal ? null : parseResult(c.text);
     const rf = result
       ? renderFinal({ installed: true, from: r.from, to: r.to, result })
       : renderUnknownResult({ from: r.from, to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
