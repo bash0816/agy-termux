@@ -218,22 +218,33 @@ async function main() {
       process.exit(rf.code);
     }
     if (r.code !== 0) process.exit(r.code);
-    // 版が変わっていない(install されなかった)場合は、バイナリを取得せず、いまのキャッシュの状態だけを示す
+    // 版が変わっていない(install されなかった)場合
     if (!r.installed) {
-      let ins;
-      try {
-        const { inspectPinned } = require('../lib/binary-cache');
-        const { readPinnedMeta } = require('../lib/downloader');
-        ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
-      } catch {
-        ins = { state: 'unknown', tag: null };
-      }
       // 監査済み版は新しいが公開待ちで見送った場合は、更新できていないことを毎回示す(詳細な通知は未通知のときだけ出る)
       if (r.outcome === 'deferred') {
         console.log('[agy] 更新候補 ' + r.aud + ' がありますが、公開状況の確認が取れていないため見送り中です(使用中: ' + r.from + ')');
       }
-      console.log(cacheStateLine(ins.state, ins.tag));
-      process.exit(0);
+      // いまのキャッシュの状態を調べる。update は FORCE_LATEST の影響を受けないため、その変数を外した env で判定する
+      let ins;
+      try {
+        const { inspectPinned } = require('../lib/binary-cache');
+        const { readPinnedMeta } = require('../lib/downloader');
+        const envNoLatest = { ...process.env };
+        delete envNoLatest.AGY_TERMUX_FORCE_LATEST;
+        ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR, env: envNoLatest });
+      } catch {
+        ins = { state: 'unknown', tag: null };
+      }
+      // 有効なキャッシュがあれば、通信・同意・起動前の確認は行わず、状態だけを示して終了する
+      if (ins.state === 'ok') {
+        console.log(cacheStateLine(ins.state, ins.tag));
+        process.exit(0);
+      }
+      // missing / invalid / unknown は同期する(同意・loader の確認を経て取得し、結果を示す)
+      const result = await syncResultOrError();
+      const rf = renderFinal({ installed: false, result });
+      printLines(rf.lines);
+      process.exit(rf.code);
     }
     // 更新後の package.json をディスクから読み直す(require のキャッシュは使わない)
     let newVer;

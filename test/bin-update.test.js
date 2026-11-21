@@ -12,12 +12,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { DEFAULT_URL } = require('../lib/audited-update');
-const { makeBinary, makeFakeLoader, makeFakeNpm, writeConsent } = require('./helpers/wiring');
+const { makeBinary, makeFakeLoader, makeFakeNpm, writeConsent, writePin } = require('./helpers/wiring');
 
 const REPO = path.resolve(__dirname, '..');
 const MOCK = path.join(__dirname, 'helpers', 'mock-https.js');
 // 検証対象のパッケージに含める部分(test/ は含めない)
 const PACKAGE_PARTS = ['bin', 'lib', 'config', 'package.json'];
+// 検証済みバイナリの取得先(bin-sync.test.js と同じ値)
+const TARBALL_URL = 'https://mock.test/agy_cli_linux_arm64.tar.gz';
 
 // 一時ディレクトリ(テスト終了時に削除)。realpath にして、prefix の比較を実体で行う
 function makeRoot() {
@@ -93,10 +95,12 @@ function setup(name, version, { consent = true } = {}) {
 }
 
 // 実 bin/agy.js を子プロセスで起動する。env は最小(親の AGY_* 環境変数は引き継がない)
-function runAgy(sb, args, env = {}, agy = sb.agy) {
+// input を渡すと標準入力に流す(同意の入力 'n' などを与えるため)。省略時は標準入力を空にする
+function runAgy(sb, args, env = {}, agy = sb.agy, input = undefined) {
   const r = spawnSync(process.execPath, [agy, ...args], {
     encoding: 'utf8',
     timeout: 20000,
+    ...(input === undefined ? {} : { input }),
     env: {
       PATH: `${sb.fakeBin}:${process.env.PATH}`,
       HOME: sb.home,
@@ -314,14 +318,98 @@ test('W6 --version は副作用ゼロ', () => {
 
 // W7 通常の update でも、不要な書き込み(~/.agy-termux の作成)をしない
 test('W7 update は隔離 HOME に .agy-termux を作らない', () => {
-  // 同意ファイルなし。今の版は監査済み版と同じ(更新なし)なので、同意の質問も取得も行わず、状態を 1 行出して exit 0 で終わる
+  // 同意ファイルなし。今の版は監査済み版と同じ(更新なし)でも、キャッシュが無ければ同期に進み、同意の確認で止まる(exit 1)。
+  // 同意の確認より前に取得は行われず、~/.agy-termux も作られない
   const sb = setup('w7', '1.2.16', { consent: false });
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.doesNotMatch(r.stderr, /同意/);
-  const lastLine = r.stdout.trimEnd().split('\n').pop();
-  assert.match(lastLine, /^\[agy\] (バイナリは取得済みです \(|バイナリは未取得です。|バイナリが壊れているか期待と異なります。|バイナリの状態を判定できません)/);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /同意の入力がありません/);
+  assert.equal(readLog(sb.mockLog).some((l) => l.includes('agy_cli_linux_arm64')), false);
   assert.equal(fs.existsSync(path.join(sb.home, '.agy-termux')), false);
+});
+
+// 版の変更なし(監査済み版 = 今の版)の update 用。sha 付きの実物の pin と検証済みバイナリを置く
+// 経路ごとの応答は MOCK_ROUTES で与える(監査済み版の確認 DEFAULT_URL と取得先 TARBALL_URL)
+function setupPinned(name, version, { consent = true } = {}) {
+  const sb = setup(name, version, { consent });
+  const bin = makeBinary(path.join(sb.dir, 'bin-src-' + version), version);
+  writePin(stdPackageDir(sb.prefix), {
+    version,
+    tagName: version,
+    url: TARBALL_URL,
+    sha256Tar: bin.sha256Tar,
+    sha256Binary: bin.sha256Binary,
+  });
+  sb.routes = path.join(sb.dir, 'routes.json');
+  sb.tarPath = bin.tarPath;
+  sb.binPath = bin.binPath;
+  sb.cacheFile = path.join(sb.home, '.agy-termux', 'agy-' + version + '.bin');
+  return sb;
+}
+
+// 監査済み版(監査用の版 tag)と取得先の応答を MOCK_ROUTES に書く
+function writeRoutes(sb, version, tarballRoute) {
+  const routes = {
+    [DEFAULT_URL]: { kind: 'body', body: JSON.stringify({ tag_name: version }) },
+    [TARBALL_URL]: tarballRoute,
+  };
+  fs.writeFileSync(sb.routes, JSON.stringify(routes, null, 2));
+}
+
+// url への GET の回数
+function getsOf(sb, url) {
+  return readLog(sb.mockLog).filter((l) => l === 'GET ' + url).length;
+}
+
+// 版の変更なし・キャッシュ ok: 同意を聞かず、通信は監査済み版の確認だけ、終了コード 0(FORCE_LATEST=1 でも同じ)
+for (const force of [false, true]) {
+  test(`update 版の変更なし・キャッシュ ok は同意なし・取得なしで exit 0${force ? '(AGY_TERMUX_FORCE_LATEST=1)' : ''}`, () => {
+    const sb = setupPinned(force ? 'u-ok-force' : 'u-ok', '1.2.16');
+    writeRoutes(sb, '1.2.16', { kind: 'file', file: sb.tarPath });
+    fs.mkdirSync(path.dirname(sb.cacheFile), { recursive: true });
+    fs.copyFileSync(sb.binPath, sb.cacheFile);
+    const env = { MOCK_ROUTES: sb.routes, ...(force ? { AGY_TERMUX_FORCE_LATEST: '1' } : {}) };
+    const r = runAgy(sb, ['update'], env);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout + r.stderr, /同意/);
+    assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
+  });
+}
+
+// 版の変更なし・キャッシュなし: 同意があれば取得して exit 0
+test('update 版の変更なし・キャッシュなしは同意のうえ取得し exit 0', () => {
+  const sb = setupPinned('u-missing', '1.2.16');
+  writeRoutes(sb, '1.2.16', { kind: 'file', file: sb.tarPath });
+  const r = runAgy(sb, ['update'], { MOCK_ROUTES: sb.routes });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(getsOf(sb, TARBALL_URL), 1);
+  assert.equal(fs.existsSync(sb.cacheFile), true);
+});
+
+// 同意の質問は stdin が TTY のときだけ行われる(lib/consent.js)。子プロセスの起動前に isTTY を立て、
+// 標準入力の 'n' を回答として読ませる(fetch-consent-wiring.test.js の FAKE_TTY と同じ考え方)。
+// data: URL の --import で読ませるので、テスト用の追加ファイルは作らない
+const TTY_SHIM = 'data:text/javascript,Object.defineProperty(process.stdin,%27isTTY%27,{value:true})';
+
+// 版の変更なし・キャッシュなし・同意を拒否(標準入力 'n'): 取得せず exit 1
+test('update 版の変更なし・キャッシュなしで同意を拒否すると exit 1、取得しない', () => {
+  const sb = setupPinned('u-refuse', '1.2.16', { consent: false });
+  writeRoutes(sb, '1.2.16', { kind: 'file', file: sb.tarPath });
+  const nodeOptions = '--require ' + MOCK + ' --import ' + TTY_SHIM;
+  const r = runAgy(sb, ['update'], { MOCK_ROUTES: sb.routes, NODE_OPTIONS: nodeOptions }, sb.agy, 'n\n');
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /同意されなかった/);
+  assert.equal(getsOf(sb, TARBALL_URL), 0);
+  assert.equal(fs.existsSync(sb.cacheFile), false);
+});
+
+// 版の変更なし・キャッシュなし・取得に失敗(HTTP 500): exit 1、キャッシュは作らない
+test('update 版の変更なし・キャッシュなしで取得に失敗すると exit 1、キャッシュを作らない', () => {
+  const sb = setupPinned('u-fetchfail', '1.2.16');
+  writeRoutes(sb, '1.2.16', { kind: 'error', status: 500 });
+  const r = runAgy(sb, ['update'], { MOCK_ROUTES: sb.routes });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(fs.existsSync(sb.cacheFile), false);
 });
 
 // --version の注記(キャッシュ状態を標準エラーに 1 行)。bin-sync.test.js の VA39 キャッシュ準備(writeValidVa39Expectation /
