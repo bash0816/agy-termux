@@ -12,12 +12,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { DEFAULT_URL } = require('../lib/audited-update');
-const { makeBinary, makeFakeLoader, makeFakeNpm, writeConsent } = require('./helpers/wiring');
+const { makeBinary, makeFakeLoader, makeFakeNpm, writeConsent, writePin } = require('./helpers/wiring');
 
 const REPO = path.resolve(__dirname, '..');
 const MOCK = path.join(__dirname, 'helpers', 'mock-https.js');
 // 検証対象のパッケージに含める部分(test/ は含めない)
 const PACKAGE_PARTS = ['bin', 'lib', 'config', 'package.json'];
+// 検証済みバイナリの取得先(bin-sync.test.js と同じ値)
+const TARBALL_URL = 'https://mock.test/agy_cli_linux_arm64.tar.gz';
 
 // 一時ディレクトリ(テスト終了時に削除)。realpath にして、prefix の比較を実体で行う
 function makeRoot() {
@@ -93,10 +95,12 @@ function setup(name, version, { consent = true } = {}) {
 }
 
 // 実 bin/agy.js を子プロセスで起動する。env は最小(親の AGY_* 環境変数は引き継がない)
-function runAgy(sb, args, env = {}, agy = sb.agy) {
+// input を渡すと標準入力に流す(同意の入力 'n' などを与えるため)。省略時は標準入力を空にする
+function runAgy(sb, args, env = {}, agy = sb.agy, input = undefined) {
   const r = spawnSync(process.execPath, [agy, ...args], {
     encoding: 'utf8',
     timeout: 20000,
+    ...(input === undefined ? {} : { input }),
     env: {
       PATH: `${sb.fakeBin}:${process.env.PATH}`,
       HOME: sb.home,
@@ -305,8 +309,9 @@ test('W5 b) 標準外のレイアウトでは prefix を推定できず、更新
 test('W6 --version は副作用ゼロ', () => {
   const sb = setup('w6', '1.2.16', { consent: false });
   const r = runAgy(sb, ['--version'], { MOCK_HTTPS_MODE: 'tripwire' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  // 未取得・同意なし・非TTY: 表示文字列は出さず、終了コード 1
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
   assert.deepEqual(fs.readdirSync(sb.home), []);
   assert.deepEqual(readLog(sb.mockLog), []);
   assert.deepEqual(readLog(sb.npmLog), []);
@@ -314,14 +319,98 @@ test('W6 --version は副作用ゼロ', () => {
 
 // W7 通常の update でも、不要な書き込み(~/.agy-termux の作成)をしない
 test('W7 update は隔離 HOME に .agy-termux を作らない', () => {
-  // 同意ファイルなし。今の版は監査済み版と同じ(更新なし)なので、同意の質問も取得も行わず、状態を 1 行出して exit 0 で終わる
+  // 同意ファイルなし。今の版は監査済み版と同じ(更新なし)でも、キャッシュが無ければ同期に進み、同意の確認で止まる(exit 1)。
+  // 同意の確認より前に取得は行われず、~/.agy-termux も作られない
   const sb = setup('w7', '1.2.16', { consent: false });
   const r = runAgy(sb, ['update'], { MOCK_HTTPS_MODE: 'ok' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.doesNotMatch(r.stderr, /同意/);
-  const lastLine = r.stdout.trimEnd().split('\n').pop();
-  assert.match(lastLine, /^\[agy\] (バイナリは取得済みです \(|バイナリは未取得です。|バイナリが壊れているか期待と異なります。|バイナリの状態を判定できません)/);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /同意の入力がありません/);
+  assert.equal(readLog(sb.mockLog).some((l) => l.includes('agy_cli_linux_arm64')), false);
   assert.equal(fs.existsSync(path.join(sb.home, '.agy-termux')), false);
+});
+
+// 版の変更なし(監査済み版 = 今の版)の update 用。sha 付きの実物の pin と検証済みバイナリを置く
+// 経路ごとの応答は MOCK_ROUTES で与える(監査済み版の確認 DEFAULT_URL と取得先 TARBALL_URL)
+function setupPinned(name, version, { consent = true } = {}) {
+  const sb = setup(name, version, { consent });
+  const bin = makeBinary(path.join(sb.dir, 'bin-src-' + version), version);
+  writePin(stdPackageDir(sb.prefix), {
+    version,
+    tagName: version,
+    url: TARBALL_URL,
+    sha256Tar: bin.sha256Tar,
+    sha256Binary: bin.sha256Binary,
+  });
+  sb.routes = path.join(sb.dir, 'routes.json');
+  sb.tarPath = bin.tarPath;
+  sb.binPath = bin.binPath;
+  sb.cacheFile = path.join(sb.home, '.agy-termux', 'agy-' + version + '.bin');
+  return sb;
+}
+
+// 監査済み版(監査用の版 tag)と取得先の応答を MOCK_ROUTES に書く
+function writeRoutes(sb, version, tarballRoute) {
+  const routes = {
+    [DEFAULT_URL]: { kind: 'body', body: JSON.stringify({ tag_name: version }) },
+    [TARBALL_URL]: tarballRoute,
+  };
+  fs.writeFileSync(sb.routes, JSON.stringify(routes, null, 2));
+}
+
+// url への GET の回数
+function getsOf(sb, url) {
+  return readLog(sb.mockLog).filter((l) => l === 'GET ' + url).length;
+}
+
+// 版の変更なし・キャッシュ ok: 同意を聞かず、通信は監査済み版の確認だけ、終了コード 0(FORCE_LATEST=1 でも同じ)
+for (const force of [false, true]) {
+  test(`update 版の変更なし・キャッシュ ok は同意なし・取得なしで exit 0${force ? '(AGY_TERMUX_FORCE_LATEST=1)' : ''}`, () => {
+    const sb = setupPinned(force ? 'u-ok-force' : 'u-ok', '1.2.16');
+    writeRoutes(sb, '1.2.16', { kind: 'file', file: sb.tarPath });
+    fs.mkdirSync(path.dirname(sb.cacheFile), { recursive: true });
+    fs.copyFileSync(sb.binPath, sb.cacheFile);
+    const env = { MOCK_ROUTES: sb.routes, ...(force ? { AGY_TERMUX_FORCE_LATEST: '1' } : {}) };
+    const r = runAgy(sb, ['update'], env);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout + r.stderr, /同意/);
+    assert.deepEqual(readLog(sb.mockLog), ['GET ' + DEFAULT_URL]);
+  });
+}
+
+// 版の変更なし・キャッシュなし: 同意があれば取得して exit 0
+test('update 版の変更なし・キャッシュなしは同意のうえ取得し exit 0', () => {
+  const sb = setupPinned('u-missing', '1.2.16');
+  writeRoutes(sb, '1.2.16', { kind: 'file', file: sb.tarPath });
+  const r = runAgy(sb, ['update'], { MOCK_ROUTES: sb.routes });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(getsOf(sb, TARBALL_URL), 1);
+  assert.equal(fs.existsSync(sb.cacheFile), true);
+});
+
+// 同意の質問は stdin が TTY のときだけ行われる(lib/consent.js)。子プロセスの起動前に isTTY を立て、
+// 標準入力の 'n' を回答として読ませる(fetch-consent-wiring.test.js の FAKE_TTY と同じ考え方)。
+// data: URL の --import で読ませるので、テスト用の追加ファイルは作らない
+const TTY_SHIM = 'data:text/javascript,Object.defineProperty(process.stdin,%27isTTY%27,{value:true})';
+
+// 版の変更なし・キャッシュなし・同意を拒否(標準入力 'n'): 取得せず exit 1
+test('update 版の変更なし・キャッシュなしで同意を拒否すると exit 1、取得しない', () => {
+  const sb = setupPinned('u-refuse', '1.2.16', { consent: false });
+  writeRoutes(sb, '1.2.16', { kind: 'file', file: sb.tarPath });
+  const nodeOptions = '--require ' + MOCK + ' --import ' + TTY_SHIM;
+  const r = runAgy(sb, ['update'], { MOCK_ROUTES: sb.routes, NODE_OPTIONS: nodeOptions }, sb.agy, 'n\n');
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /同意されなかった/);
+  assert.equal(getsOf(sb, TARBALL_URL), 0);
+  assert.equal(fs.existsSync(sb.cacheFile), false);
+});
+
+// 版の変更なし・キャッシュなし・取得に失敗(HTTP 500): exit 1、キャッシュは作らない
+test('update 版の変更なし・キャッシュなしで取得に失敗すると exit 1、キャッシュを作らない', () => {
+  const sb = setupPinned('u-fetchfail', '1.2.16');
+  writeRoutes(sb, '1.2.16', { kind: 'error', status: 500 });
+  const r = runAgy(sb, ['update'], { MOCK_ROUTES: sb.routes });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(fs.existsSync(sb.cacheFile), false);
 });
 
 // --version の注記(キャッシュ状態を標準エラーに 1 行)。bin-sync.test.js の VA39 キャッシュ準備(writeValidVa39Expectation /
@@ -357,13 +446,13 @@ function assertOneErrorLine(stderr, expected) {
 // --version の別名(4 つ)
 const VERSION_ALIASES = ['--version', '-v', '-V', 'version'];
 
-test('--version 注記: キャッシュが無ければ 1行目は不変で、標準エラーに『バイナリは未取得です』を1行出し、終了コード 0', () => {
+test('--version: 未取得・同意なし非TTYは stdout 空で終了コード 1', () => {
   VERSION_ALIASES.forEach((alias, i) => {
     const sb = setup(`u5a-${i}`, '1.2.16', { consent: false });
     const r = runAgy(sb, [alias], { MOCK_HTTPS_MODE: 'tripwire' });
-    assert.equal(r.status, 0, `${alias}: ${r.stderr}`);
-    assert.equal(r.stdout, 'agy-termux 1.2.16\n', alias);
-    assertOneErrorLine(r.stderr, '[agy] バイナリは未取得です。agy を実行すると、必要に応じて取得します');
+    assert.equal(r.status, 1, `${alias}: ${r.stderr}`);
+    assert.equal(r.stdout, '', alias);
+    assert.match(r.stderr, /同意/, alias);
     // 通信は 0 回、隔離 HOME には何も作らない
     assert.deepEqual(readLog(sb.mockLog), [], alias);
     assert.deepEqual(readLog(sb.npmLog), [], alias);
@@ -371,32 +460,118 @@ test('--version 注記: キャッシュが無ければ 1行目は不変で、標
   });
 });
 
-test('--version 注記: 有効なキャッシュがあれば注記を出さない', () => {
+test('--version: 取得済みは同意なしで本体を実行し本体の出力を返す', () => {
   const sb = setup('u5b', '1.2.16', { consent: false });
-  prepareVa39Cache(sb, '1.2.16');
+  const file = prepareVa39Cache(sb, '1.2.16');
   const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
+  // 有効キャッシュなので本体(フェイクローダ)を実行する。偽キャッシュには AGYVER が無いため version=unknown
+  assert.equal(r.stdout, `LOADER_RAN version=unknown path=${file}\n`);
   assert.deepEqual(readLog(sb.mockLog), []);
 });
 
-test('--version 注記: 壊れたキャッシュは『壊れているか期待と異なります』', () => {
+test('--version: 壊れたキャッシュは同意なし非TTYで stdout 空・終了コード 1', () => {
   const sb = setup('u5c', '1.2.16', { consent: false });
   // 期待サイズ(10MiB 超)より小さい偽ファイルを置く
   prepareVa39Cache(sb, '1.2.16', 1024);
   const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
-  assertOneErrorLine(r.stderr, 'バイナリが壊れているか期待と異なります');
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /同意/);
   assert.deepEqual(readLog(sb.mockLog), []);
 });
 
-test('--version 注記: FORCE_LATEST=1 では『判定できません』', () => {
+test('--version: FORCE_LATEST=1 は同意が先に求められる', () => {
   const sb = setup('u5d', '1.2.16', { consent: false });
   const r = runAgy(sb, ['--version'], { AGY_TERMUX_FORCE_LATEST: '1', MOCK_HTTPS_MODE: 'tripwire' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'agy-termux 1.2.16\n');
-  assertOneErrorLine(r.stderr, 'バイナリの状態を判定できません');
+  // 同意ゲートを先に通すため、同意なし・非TTYでは FORCE_LATEST の案内に進まず終了する
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr, /同意/);
+  assert.doesNotMatch(r.stderr, /AGY_TERMUX_FORCE_LATEST/);
   assert.deepEqual(readLog(sb.mockLog), []);
+});
+
+// 本体の代わりに動かす偽ローダを、テスト内で差し替える(wiring.js の makeFakeLoader は argv を出さないため)。
+// agy は <prefix>/glibc/lib/ld-linux-aarch64.so.1 を --library-path <lib> <本体> <引数...> で起動するので、
+// 先頭 3 つ(--library-path, <lib>, <本体>)の後ろが本体への引数になる
+function installBodyLoader(sb, body) {
+  const loader = path.join(sb.prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
+  fs.writeFileSync(loader, '#!' + process.execPath + '\n' + body);
+  fs.chmodSync(loader, 0o755);
+  return loader;
+}
+
+// 本体が受け取った引数を stdout に 1 行で出す偽本体
+const ECHO_ARGV_BODY = `
+const i = process.argv.indexOf('--library-path');
+process.stdout.write('ARGV ' + JSON.stringify(process.argv.slice(i + 3)) + '\\n');
+`;
+
+test('--version: 4 つの別名はすべて --version に書き換えて本体へ渡す', () => {
+  VERSION_ALIASES.forEach((alias, i) => {
+    const sb = setup(`u5f-alias-${i}`, '1.2.16', { consent: false });
+    prepareVa39Cache(sb, '1.2.16');
+    installBodyLoader(sb, ECHO_ARGV_BODY);
+    const r = runAgy(sb, [alias], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+    assert.equal(r.status, 0, `${alias}: ${r.stderr}`);
+    assert.equal(r.stdout, 'ARGV ' + JSON.stringify(['--version']) + '\n', alias);
+  });
+});
+
+test('--version: 先頭以外の --version は書き換えず、先頭の --version の後ろ引数は本体に残す', () => {
+  // agy foo --version / agy update --version: 先頭が版表示の別名ではないので、本体を --version 単独で呼ばない
+  ['foo', 'update'].forEach((first) => {
+    const sb = setup(`u5g-neg-${first}`, '1.2.16', { consent: false });
+    prepareVa39Cache(sb, '1.2.16');
+    installBodyLoader(sb, ECHO_ARGV_BODY);
+    const r = runAgy(sb, [first, '--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+    assert.doesNotMatch(r.stdout, /ARGV \["--version"\]/, `${first}: ${r.stdout}${r.stderr}`);
+  });
+
+  // agy --version --extra: 書き換えるのは先頭だけなので、--extra は本体の argv に残る
+  const sb = setup('u5g-extra', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  installBodyLoader(sb, ECHO_ARGV_BODY);
+  const r = runAgy(sb, ['--version', '--extra'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'ARGV ' + JSON.stringify(['--version', '--extra']) + '\n');
+});
+
+test('--version: 本体が終了コード 7 で終わると agy も 7 で終わり、stdout は本体の出力だけ', () => {
+  const sb = setup('u5h-exit7', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  installBodyLoader(sb, "process.stdout.write('BODY_OUT\\n');\nprocess.exitCode = 7;\n");
+  const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 7, r.stderr);
+  assert.equal(r.stdout, 'BODY_OUT\n');
+});
+
+test('--version: 本体が SIGTERM で終わる・起動に失敗する場合は終了コードが非 0', (t) => {
+  // 本体がシグナルで終わる場合: agy は process.exit(r.signal ? 1 : ...) で終わる
+  const sbSig = setup('u5i-signal', '1.2.16', { consent: false });
+  prepareVa39Cache(sbSig, '1.2.16');
+  installBodyLoader(sbSig, "process.kill(process.pid, 'SIGTERM');\n");
+  const rSig = runAgy(sbSig, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  t.diagnostic(`measured signal: status=${rSig.status} stdout=${JSON.stringify(rSig.stdout)} stderr=${JSON.stringify(rSig.stderr)}`);
+  assert.notEqual(rSig.status, 0, rSig.stderr);
+
+  // 起動に失敗する場合: 実行権を外した偽ローダを起動すると spawn が失敗する
+  const sbSpawn = setup('u5i-spawn', '1.2.16', { consent: false });
+  prepareVa39Cache(sbSpawn, '1.2.16');
+  const loader = installBodyLoader(sbSpawn, ECHO_ARGV_BODY);
+  fs.chmodSync(loader, 0o644);
+  const rSpawn = runAgy(sbSpawn, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  t.diagnostic(`measured spawn-fail: status=${rSpawn.status} stdout=${JSON.stringify(rSpawn.stdout)} stderr=${JSON.stringify(rSpawn.stderr)}`);
+  assert.notEqual(rSpawn.status, 0, rSpawn.stderr);
+});
+
+test('--version: 取得済みキャッシュでも同意がなければ通信・npm を行わない', () => {
+  const sb = setup('u5j-noconsent', '1.2.16', { consent: false });
+  prepareVa39Cache(sb, '1.2.16');
+  const r = runAgy(sb, ['--version'], { MOCK_VA_BITS: '39', MOCK_HTTPS_MODE: 'tripwire' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readLog(sb.mockLog), []);
+  assert.deepEqual(readLog(sb.npmLog), []);
 });

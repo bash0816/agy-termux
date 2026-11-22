@@ -555,3 +555,103 @@ test('gateCompat: 説明文の2行を stderr に出す', async () => {
     rmTmp(dir);
   }
 });
+
+// ---- ensureFetchConsent ----
+
+test('ensureFetchConsent: 両方同意済みなら質問せず { ok: true }', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, file, readline } = build(dir, { reply: answerWith('n') });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ download: true, compat: true }));
+    assert.deepStrictEqual(await c.ensureFetchConsent({ isPatch: true }), { ok: true });
+    assert.strictEqual(readline.instances.length, 0);
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ensureFetchConsent: download が拒否されたら stage download/declined で止まり、compat は聞かない', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, readline, stderr } = build(dir, { reply: answerWith('n') });
+    assert.deepStrictEqual(
+      await c.ensureFetchConsent({ isPatch: true }),
+      { ok: false, stage: 'download', result: 'declined' },
+    );
+    assert.strictEqual(readline.instances.length, 1);
+    assert.ok(!stderr.text().includes('互換性のための技術的な調整'));
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ensureFetchConsent: download が入力なし(EOF)なら stage download/no_input', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c } = build(dir, { reply: eofReply });
+    assert.deepStrictEqual(
+      await c.ensureFetchConsent({ isPatch: true }),
+      { ok: false, stage: 'download', result: 'no_input' },
+    );
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ensureFetchConsent: isPatch が false なら compat は聞かず { ok: true }', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, file, readline, stderr } = build(dir, { reply: answerWith('n') });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ download: true }));
+    assert.deepStrictEqual(await c.ensureFetchConsent({ isPatch: false }), { ok: true });
+    assert.strictEqual(readline.instances.length, 0);
+    assert.ok(!stderr.text().includes('互換性のための技術的な調整'));
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ensureFetchConsent: isPatch が true で compat を拒否すると stage compat/declined', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, file, readline } = build(dir, { reply: answerWith('n') });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ download: true }));
+    assert.deepStrictEqual(
+      await c.ensureFetchConsent({ isPatch: true }),
+      { ok: false, stage: 'compat', result: 'declined' },
+    );
+    assert.strictEqual(readline.instances.length, 1);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { download: true });
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ensureFetchConsent: isPatch が true で compat が入力なし(EOF)なら stage compat/no_input', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, file } = build(dir, { reply: eofReply });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ download: true }));
+    assert.deepStrictEqual(
+      await c.ensureFetchConsent({ isPatch: true }),
+      { ok: false, stage: 'compat', result: 'no_input' },
+    );
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('ensureFetchConsent: 未同意の両方に承諾すると { ok: true } になり、両方を保存する', async () => {
+  const dir = makeTmpDir();
+  try {
+    const { c, file } = build(dir, { reply: answerWith('y') });
+    assert.deepStrictEqual(await c.ensureFetchConsent({ isPatch: true }), { ok: true });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { download: true, compat: true });
+  } finally {
+    rmTmp(dir);
+  }
+});

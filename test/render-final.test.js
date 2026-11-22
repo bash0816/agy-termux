@@ -41,7 +41,7 @@ test('installed 偽・synced: 取得の文言と code 0', () => {
   })
 })
 
-test('installed 偽・skipped consent_declined: 文言・out・code 0', () => {
+test('installed 偽・skipped consent_declined: 文言・out・code 1', () => {
   const out = renderFinal({
     installed: false,
     result: { status: 'skipped', reason: 'consent_declined', tag: '1.2.3', deleted: { count: 0, bytes: 0 } },
@@ -51,11 +51,11 @@ test('installed 偽・skipped consent_declined: 文言・out・code 0', () => {
       stream: 'out',
       text: `[agy] 同意されなかったため、バイナリは取得していません。取得するには、${RETRY}`,
     }],
-    code: 0,
+    code: 1,
   })
 })
 
-test('installed 偽・skipped compat_declined: 文言・out・code 0', () => {
+test('installed 偽・skipped compat_declined: 文言・out・code 1', () => {
   const out = renderFinal({
     installed: false,
     result: { status: 'skipped', reason: 'compat_declined', tag: '1.2.3', deleted: { count: 0, bytes: 0 } },
@@ -65,7 +65,7 @@ test('installed 偽・skipped compat_declined: 文言・out・code 0', () => {
       stream: 'out',
       text: `[agy] 互換調整に同意されなかったため、バイナリは取得していません。取得するには、${RETRY}`,
     }],
-    code: 0,
+    code: 1,
   })
 })
 
@@ -152,7 +152,7 @@ test('installed 真・synced: 「旧 → 新」の更新文言と code 0', () =>
   })
 })
 
-test('installed 真・skipped consent_declined: 文言・out・code 0', () => {
+test('installed 真・skipped consent_declined: 文言・out・code 1', () => {
   const out = renderFinal({
     installed: true,
     from: '1.0.0',
@@ -164,11 +164,11 @@ test('installed 真・skipped consent_declined: 文言・out・code 0', () => {
       { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
       { stream: 'out', text: `[agy] バイナリ: 同意されなかったため、取得していません。取得するには、${RETRY}` },
     ],
-    code: 0,
+    code: 1,
   })
 })
 
-test('installed 真・skipped compat_declined: 文言・out・code 0', () => {
+test('installed 真・skipped compat_declined: 文言・out・code 1', () => {
   const out = renderFinal({
     installed: true,
     from: '1.0.0',
@@ -180,7 +180,7 @@ test('installed 真・skipped compat_declined: 文言・out・code 0', () => {
       { stream: 'out', text: '[agy] パッケージを 1.0.0 → 1.1.0 に更新しました' },
       { stream: 'out', text: `[agy] バイナリ: 互換調整に同意されなかったため、取得していません。取得するには、${RETRY}` },
     ],
-    code: 0,
+    code: 1,
   })
 })
 
@@ -367,13 +367,25 @@ test('parseResult: 改行で終わらない行は無視する', () => {
   assert.strictEqual(parseResult(goodLine), null)
 })
 
-test('parseResult: 末尾の不完全な行は無視する', () => {
-  assert.deepStrictEqual(parseResult(goodLine + '\n{"status":"cur'), GOOD)
+test('parseResult: 末尾が改行で終わらない不完全な行があれば null', () => {
+  assert.strictEqual(parseResult(goodLine + '\n{"status":"cur'), null)
 })
 
-test('parseResult: 最後の行が不正なら一つ前の正常な行を採用する', () => {
+test('parseResult: 正常な行が2つあれば null', () => {
+  assert.strictEqual(parseResult(goodLine + '\n' + goodLine + '\n'), null)
+})
+
+test('parseResult: 正常な行と不正な行が混在すれば null', () => {
   const text = goodLine + '\n' + line({ status: 'bogus' }) + '\n'
-  assert.deepStrictEqual(parseResult(text), GOOD)
+  assert.strictEqual(parseResult(text), null)
+})
+
+test('parseResult: 空文字列は null', () => {
+  assert.strictEqual(parseResult(''), null)
+})
+
+test('parseResult: 改行のみは null', () => {
+  assert.strictEqual(parseResult('\n'), null)
 })
 
 test('parseResult: 全部不正なら null', () => {
@@ -397,10 +409,6 @@ test('parseResult: deleted の count・bytes が負・小数・欠落なら不�
   assert.strictEqual(parseResult(line({ deleted: { count: 0, bytes: 0.5 } }) + '\n'), null)
   assert.strictEqual(parseResult(line({ deleted: undefined }) + '\n'), null)
   assert.strictEqual(parseResult(line({ deleted: { bytes: 0 } }) + '\n'), null)
-})
-
-test('parseResult: 空文字列は null', () => {
-  assert.strictEqual(parseResult(''), null)
 })
 
 test('parseResult: オブジェクトでない JSON は不採用', () => {

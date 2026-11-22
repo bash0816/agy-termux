@@ -865,3 +865,36 @@ test('prune: .va39r2・.va39・.bin を同じタグとして扱い、pin のタ�
     'agy-1.3.0.bin', 'agy-1.3.0.va39r2',
   ]);
 });
+
+// --- pinnedCacheState ---
+
+test('pinnedCacheState: 期待サイズと一致する有効な固定版は ok を返す', () => {
+  const r = bc.pinnedCacheState({
+    fs: fakeFsDeps({ size: PIN_BIN.length }), meta: PIN_META, dir: '/cache', isPatch: true,
+  });
+  assert.equal(r.state, 'ok');
+  assert.equal(r.tag, '1.2.16');
+  assert.equal(r.file, bc.cachePaths({ dir: '/cache', tag: '1.2.16', isPatch: true }).file);
+});
+
+test('pinnedCacheState: ファイルが無ければ missing を返す', () => {
+  const r = bc.pinnedCacheState({
+    fs: fakeFsDeps({ exists: false }), meta: PIN_META, dir: '/cache', isPatch: true,
+  });
+  assert.equal(r.state, 'missing');
+});
+
+test('pinnedCacheState: 期待サイズと一致しなければ invalid を返す', () => {
+  const r = bc.pinnedCacheState({
+    fs: fakeFsDeps({ size: PIN_BIN.length + 1 }), meta: PIN_META, dir: '/cache', isPatch: true,
+  });
+  assert.equal(r.state, 'invalid');
+});
+
+test('pinnedCacheState: 不正な VA39 期待値は assertVa39Entry が例外にする', () => {
+  const meta = { ...PIN_META, expectation: undefined };
+  assert.throws(
+    () => bc.pinnedCacheState({ fs: fakeFsDeps(), meta, dir: '/cache', isPatch: true }),
+    (e) => e?.code === VA39_CODES.EXPECTATION_MISSING,
+  );
+});

@@ -9,6 +9,10 @@ const CONSENT_FILE = path.join(INSTALL_DIR, '.consent');
 
 const { createConsent } = require('../lib/consent');
 const consent = createConsent({ file: CONSENT_FILE, fs, stdin: process.stdin, stderr: process.stderr });
+// 同意の拒否・入力なしのときに出す文言(取得を始める前に止まった場合で共通に使う)
+const MSG_DOWNLOAD_DECLINED = '[agy] 同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください';
+const MSG_COMPAT_DECLINED = '[agy] 互換調整に同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください';
+const MSG_NO_INPUT = '[agy] 同意の入力がありません。端末から agy を実行してください';
 // bin/agy.js は "<prefix>/lib/node_modules/@bash0816/agy-termux/bin/agy.js" に配置される
 // (npmのグローバルインストールの標準レイアウト)。ここから4階層上がprefixになる。
 // 純粋な文字列パス計算のみ行うため、テストではfsアクセスなしで検証できる。
@@ -29,7 +33,7 @@ function detectOwnPrefix() {
 }
 
 // バイナリ同期(lib/binary-cache.js の syncBinary)に渡す依存を組み立てる
-// require は呼び出し時に行い、--version の経路では読み込まれないようにする
+// require は呼び出し時に行い、起動時の読み込みを避ける
 async function buildSyncDeps() {
   const bc = require('../lib/binary-cache');
   const { fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
@@ -40,16 +44,16 @@ async function buildSyncDeps() {
   const killPid = (pid) => {
     try { process.kill(pid, 0); return 'alive'; } catch (e) { return e && e.code === 'ESRCH' ? 'esrch' : 'unknown'; }
   };
-  // 同意は呼び出し前の preflight で取得済みのため、ここでは常に許可扱いにする
+  // 同意は保存済みの同意ファイルで判定する。未保存の互換調整は、取得の直前に gateCompat で確認する(拒否・入力なしは不許可)
   const onPhase = (label) => process.stderr.write('[agy] ' + (label === '取得します...' ? meta.tagName + ' のバイナリを取得します(初回のみ・数分かかることがあります。次回からは取得しません)' : label) + '\n');
   return {
     meta,
     dir: INSTALL_DIR,
     isPatch,
-    hasConsent: () => true,
+    hasConsent: (key) => consent.hasConsent(key),
     fsDeps: fs,
     loaderExists: () => fs.existsSync(path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1')),
-    confirmCompat: async () => true,
+    confirmCompat: async () => (await consent.gateCompat()) === 'granted',
     onPhase,
     progress: true,
     install: async (file) => {
@@ -84,21 +88,11 @@ async function preflight() {
   const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
   const loader = path.join(prefix, 'glibc', 'lib', 'ld-linux-aarch64.so.1');
   if (!fs.existsSync(loader)) return { ok: false, status: 'error', reason: 'loader' };
-  const g = await consent.gateDownload();
-  if (g !== 'granted') {
-    return g === 'declined'
-      ? { ok: false, status: 'skipped', reason: 'consent_declined' }
-      : { ok: false, status: 'error', reason: 'no_input' };
-  }
-  if (require('../lib/binary-cache').needsPatch()) {
-    const c = await consent.gateCompat();
-    if (c !== 'granted') {
-      return c === 'declined'
-        ? { ok: false, status: 'skipped', reason: 'compat_declined' }
-        : { ok: false, status: 'error', reason: 'no_input' };
-    }
-  }
-  return { ok: true };
+  // 取得に必要な同意(download・互換調整)を一括で確認する
+  const gate = await consent.ensureFetchConsent({ isPatch: require('../lib/binary-cache').needsPatch() });
+  if (gate.ok) return { ok: true };
+  if (gate.result === 'no_input') return { ok: false, status: 'error', reason: 'no_input' };
+  return { ok: false, status: 'skipped', reason: gate.stage === 'download' ? 'consent_declined' : 'compat_declined' };
 }
 
 // 確認を通してからバイナリを同期する。確認で止まった場合は結果オブジェクトで返す
@@ -151,24 +145,9 @@ function writeResultFd(result) {
 
 async function main() {
   const args = process.argv.slice(2);
-
-  // --version / -v / -V / version: ローカル情報のみで即座に返す。ネットワーク・同意ゲート・ダウンロード・spawn・
-  // ファイルシステムへの書き込みは一切行わない。キャッシュの状態を読むだけ（legacy cleanupより前に早期return する）。
-  if (['--version', '-v', '-V', 'version'].includes(args[0])) {
-    const pkg = require('../package.json');
-    console.log(`agy-termux ${pkg.version}`);
-    // バイナリが未取得・破損・判定不能のときだけ、標準エラーに注記を1行足す(読み取りのみ・通信なし)。失敗しても1行目と終了コードは変えない
-    try {
-      const { inspectPinned } = require('../lib/binary-cache');
-      const { readPinnedMeta } = require('../lib/downloader');
-      const { cacheStateLine } = require('../lib/render-final');
-      const ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
-      if (ins.state !== 'ok') console.error(cacheStateLine(ins.state, ins.tag));
-    } catch {
-      // 注記を出せなくても --version 自体は成功させる
-    }
-    process.exit(0);
-  }
+  // --version / -v / -V / version は本体の --version として扱い、版は本体の出力を返す
+  const versionMode = ['--version', '-v', '-V', 'version'].includes(args[0]);
+  if (versionMode) args[0] = '--version';
 
   // --self-check[=<nonce>][ --deep]: 同意・ネットワーク・書き込みより前に返す自己診断
   if (args[0] === '--self-check' || (typeof args[0] === 'string' && args[0].startsWith('--self-check='))) {
@@ -202,7 +181,7 @@ async function main() {
       printLines(rf.lines);
       process.exit(rf.code);
     }
-    const { runUpdate, createDeps } = require('../lib/audited-update');
+    const { runUpdate, createDeps, normalizeTag } = require('../lib/audited-update');
     const pkg = require('../package.json');
     const r = await runUpdate(createDeps({
       spawnSync,
@@ -224,22 +203,33 @@ async function main() {
       process.exit(rf.code);
     }
     if (r.code !== 0) process.exit(r.code);
-    // 版が変わっていない(install されなかった)場合は、バイナリを取得せず、いまのキャッシュの状態だけを示す
+    // 版が変わっていない(install されなかった)場合
     if (!r.installed) {
-      let ins;
-      try {
-        const { inspectPinned } = require('../lib/binary-cache');
-        const { readPinnedMeta } = require('../lib/downloader');
-        ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR });
-      } catch {
-        ins = { state: 'unknown', tag: null };
-      }
       // 監査済み版は新しいが公開待ちで見送った場合は、更新できていないことを毎回示す(詳細な通知は未通知のときだけ出る)
       if (r.outcome === 'deferred') {
         console.log('[agy] 更新候補 ' + r.aud + ' がありますが、公開状況の確認が取れていないため見送り中です(使用中: ' + r.from + ')');
       }
-      console.log(cacheStateLine(ins.state, ins.tag));
-      process.exit(0);
+      // いまのキャッシュの状態を調べる。update は FORCE_LATEST の影響を受けないため、その変数を外した env で判定する
+      let ins;
+      try {
+        const { inspectPinned } = require('../lib/binary-cache');
+        const { readPinnedMeta } = require('../lib/downloader');
+        const envNoLatest = { ...process.env };
+        delete envNoLatest.AGY_TERMUX_FORCE_LATEST;
+        ins = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR, env: envNoLatest });
+      } catch {
+        ins = { state: 'unknown', tag: null };
+      }
+      // 有効なキャッシュがあれば、通信・同意・起動前の確認は行わず、状態だけを示して終了する
+      if (ins.state === 'ok') {
+        console.log(cacheStateLine(ins.state, ins.tag));
+        process.exit(0);
+      }
+      // missing / invalid / unknown は同期する(同意・loader の確認を経て取得し、結果を示す)
+      const result = await syncResultOrError();
+      const rf = renderFinal({ installed: false, result });
+      printLines(rf.lines);
+      process.exit(rf.code);
     }
     // 更新後の package.json をディスクから読み直す(require のキャッシュは使わない)
     let newVer;
@@ -255,7 +245,7 @@ async function main() {
     if (!fs.existsSync(path.join(r.pkgDir, 'lib', 'binary-cache.js'))) {
       console.log('[agy] パッケージを ' + r.from + ' → ' + r.aud + ' に更新しました');
       console.error('[agy] バイナリ: このバージョンには同期機能が無いため同期していません。版が一致しない場合は AGY_TERMUX_REFRESH=1 agy を実行してください');
-      process.exit(0);
+      process.exit(1);
     }
     // 新しいコードに同期を任せる。結果は fd 3 で受け取る
     const c = await runSyncChild({
@@ -263,10 +253,14 @@ async function main() {
       script: path.join(r.pkgDir, 'bin', 'agy.js'),
       args: ['update', '--sync-binary-only', '--result-fd=3'],
     });
-    const result = parseResult(c.text);
+    // error または signal で終わった子の出力は、正しい JSON でも採用しない
+    const parsed = c.error || c.signal ? null : parseResult(c.text);
+    // current / synced は、結果の tag が監査済み版 (r.aud) と一致するものだけ採用する
+    const tagMismatch = parsed !== null && (parsed.status === 'current' || parsed.status === 'synced') && (normalizeTag(parsed.tag) === null || normalizeTag(parsed.tag) !== normalizeTag(r.aud));
+    const result = tagMismatch ? null : parsed;
     const rf = result
       ? renderFinal({ installed: true, from: r.from, to: r.to, result })
-      : renderUnknownResult({ from: r.from, to: r.to, cause: c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
+      : renderUnknownResult({ from: r.from, to: r.to, cause: tagMismatch ? 'tag mismatch' : c.error ? (c.error.code || c.error.message) : c.signal ? 'signal ' + c.signal : 'exit ' + c.code });
     printLines(rf.lines);
     process.exit(rf.code);
   }
@@ -276,9 +270,18 @@ async function main() {
     console.error('[agy] glibc loader が見つかりません。');
     console.error('  pkg install glibc-repo && pkg install glibc'); process.exit(1);
   }
-  const g = await consent.gateDownload();
-  if (g === 'declined') { console.error('[agy] 同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
-  if (g === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
+  // --version 時、固定版のキャッシュが有効なら取得しないので同意ゲートを通さない(通信・同意・取得判定はしない)
+  let pinnedOk = false;
+  if (versionMode && process.env.AGY_TERMUX_FORCE_LATEST !== '1' && process.env.AGY_TERMUX_REFRESH !== '1') {
+    const { inspectPinned } = require('../lib/binary-cache');
+    const { readPinnedMeta } = require('../lib/downloader');
+    pinnedOk = inspectPinned({ readPinnedMeta, installDir: INSTALL_DIR }).state === 'ok';
+  }
+  if (!pinnedOk) {
+    const g = await consent.gateDownload();
+    if (g === 'declined') { console.error(MSG_DOWNLOAD_DECLINED); process.exit(versionMode ? 1 : 0); }
+    if (g === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
+  }
 
   const { fetchLatestMeta, fetchPinnedMeta, downloadBinary } = require('../lib/downloader');
   const { describeFailure } = require('../lib/errors');
@@ -317,14 +320,16 @@ async function main() {
   const cacheState = bc.inspectFile({ fs, file: tmp, expectedSize });
   const cacheHit = !forceRefresh && cacheState === 'ok';
 
-  if (!cacheHit && isPatch) {
-    const c = await consent.gateCompat();
-    if (c === 'declined') { console.error('[agy] 互換調整に同意されなかったため、バイナリは取得しません。取得するには、もう一度 agy を実行して同意してください'); process.exit(0); }
-    if (c === 'no_input') { console.error('[agy] 同意の入力がありません。端末から agy を実行してください'); process.exit(1); }
-  }
-
   // バイナリを取得して配置する。取得の前に予告を出す(取得の進捗はダウンロード側が出す)
   const install = async (reason) => {
+    // 取得の直前に同意を確認する(download・互換調整)。拒否・入力なしのときは取得しない。
+    // 自己回復('self_heal')もここを通るので、互換調整が未同意なら取得しない
+    const gate = await consent.ensureFetchConsent({ isPatch });
+    if (!gate.ok) {
+      if (gate.result === 'no_input') { console.error(MSG_NO_INPUT); process.exit(1); }
+      console.error(gate.stage === 'download' ? MSG_DOWNLOAD_DECLINED : MSG_COMPAT_DECLINED);
+      process.exit(versionMode ? 1 : 0);
+    }
     // 取得の理由を示す。自己回復('self_heal')は直前に専用の行を出しているので、ここでは出さない
     const preface = {
       refresh: `AGY_TERMUX_REFRESH=1 のため、${tagName} のバイナリを取得し直します`,
@@ -388,4 +393,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { computePrefixFromRealFilePath, detectOwnPrefix, preflight, syncWithGates };
+module.exports = { computePrefixFromRealFilePath, detectOwnPrefix, buildSyncDeps, preflight, syncWithGates };
