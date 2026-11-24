@@ -1,3 +1,14 @@
+## 1.5.9 — 2026-11-24 ✅ Current \/ 現行版
+
+Google Antigravity CLI (agy) v1.5.9 対応。Termux 実機検証済み。
+agy v1.5.9 support. Verified on Termux (Android ARM64).
+
+```sh
+npm install -g @bash0816/agy-termux
+```
+
+---
+
 ## Unreleased
 
 - `agy --version`（`-v`、`-V`、`version` も同じ）は同梱の agy 本体を実行し、その出力をそのまま表示します。本体が未取得または壊れている場合は、同意を求めてから取得して実行します。同意がない場合、非対話実行の場合、取得に失敗した場合は、何も出力せず終了コード 1 で終了します。
@@ -10,7 +21,7 @@
 
 ---
 
-## 1.5.5 — 2026-11-14 ✅ Current \/ 現行版
+## 1.5.5 — 2026-11-14 ✅
 
 Google Antigravity CLI (agy) v1.5.5 対応。Termux 実機検証済み。
 agy v1.5.5 support. Verified on Termux (Android ARM64).
