@@ -1,8 +1,8 @@
 {
-  "tag_name": "1.5.16",
-  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.5.16/agy_cli_linux_arm64.tar.gz",
-  "sha256_tar": "7ddeec790084e550af18adb04a5b6c5fdf2db3e1026854f49901a04cb4265c7e",
-  "sha256_binary": "7d077f7953c1f80d3fe3cac6c491c5c389bde3d05f8b3fc71b1a3f7e7f6a9cef",
+  "tag_name": "1.5.19",
+  "download_url": "https://github.com/google-antigravity/antigravity-cli/releases/download/1.5.19/agy_cli_linux_arm64.tar.gz",
+  "sha256_tar": "aa316ff45b0d40b49ed83d29e3865857fca0c125f350fbb9d3c1cb9a640b49c4",
+  "sha256_binary": "f7eb360ab67f74f8307302fc5948775155be3a68b65763fe3c62aceda728a968",
   "va39_patcher_rev": 2,
   "va39_patch_counts": {
     "ubfx": 0,
@@ -15,7 +15,7 @@
     {
       "kind": "main",
       "offset": 0,
-      "size": 257774256,
+      "size": 263475936,
       "counts": {
         "ubfx": 0,
         "lsl": 7,
@@ -26,8 +26,8 @@
     },
     {
       "kind": "embedded",
-      "offset": 226731826,
-      "size": 6263488,
+      "offset": 226158710,
+      "size": 6271464,
       "counts": {
         "ubfx": 0,
         "lsl": 0,
@@ -37,20 +37,20 @@
       }
     }
   ],
-  "va39_patched_sha256": "7ed6010694768460ac5313b472a67d32d153e48d7fc0a44c003a4939748f30c2",
-  "va39_patched_size": 257774256,
+  "va39_patched_sha256": "c4860fe30ef424fc6dd635f087109d0c2a3781159328284a5b383849be78135b",
+  "va39_patched_size": 263475936,
   "va39_baseline_comparison": {
     "status": "changed",
     "differences": [
-      "breakdown[0].size: 249582256 -> 257774256",
-      "breakdown[1].offset: 218602401 -> 226731826",
-      "breakdown[1].size: 6249360 -> 6263488"
+      "breakdown[0].size: 257774256 -> 263475936",
+      "breakdown[1].offset: 226731826 -> 226158710",
+      "breakdown[1].size: 6263488 -> 6271464"
     ]
   },
-  "release_id": 456293630,
-  "asset_id": 785631432,
-  "asset_updated_at": "2026-11-24T04:06:44Z",
+  "release_id": 461398150,
+  "asset_id": 803759301,
+  "asset_updated_at": "2026-11-28T08:02:56Z",
   "source_repo": "google-antigravity/antigravity-cli",
-  "detected_date": "2026-11-25",
+  "detected_date": "2026-11-29",
   "status": "pending_device_verification"
 }
